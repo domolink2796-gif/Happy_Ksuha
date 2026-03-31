@@ -1,1 +1,219 @@
-q
+
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Для Ксюшеньки ❤️</title>
+    <style>
+        /* Базовые настройки экрана */
+        body { 
+            margin: 0; 
+            background: #0b0b0b; 
+            color: #d4af37; 
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
+            display: flex; 
+            align-items: center; 
+            justify-content: center; 
+            height: 100vh; 
+            text-align: center; 
+            overflow: hidden; 
+            position: relative;
+        }
+
+        /* Холст для анимации на весь экран */
+        canvas { 
+            position: absolute; 
+            top: 0; 
+            left: 0; 
+            z-index: 1; 
+            pointer-events: none; 
+        }
+
+        /* Контейнер с поздравлением */
+        .container { 
+            position: relative; 
+            z-index: 2; 
+            border: 2px solid #d4af37; 
+            padding: 50px 30px; 
+            border-radius: 40px; 
+            background: rgba(20, 20, 20, 0.85); 
+            backdrop-filter: blur(15px); 
+            box-shadow: 0 0 60px rgba(212, 175, 55, 0.4); 
+            max-width: 320px;
+            border: 1px solid rgba(212, 175, 55, 0.5);
+        }
+
+        /* ТЕХНОЛОГИЧНЫЙ СЧЕТЧИК ВОЗРАСТА */
+        .age-badge {
+            font-size: 14px;
+            letter-spacing: 2px;
+            color: rgba(212, 175, 55, 0.7);
+            margin-bottom: 10px;
+            font-family: 'Courier New', monospace;
+        }
+        #age-number {
+            font-size: 42px;
+            font-weight: bold;
+            color: #fff;
+            text-shadow: 0 0 20px #d4af37;
+            display: block;
+        }
+
+        /* Анимированное сердце */
+        .heart { 
+            font-size: 90px; 
+            cursor: pointer; 
+            filter: drop-shadow(0 0 20px #ff4d4d); 
+            animation: pulse 1.2s infinite; 
+            transition: transform 0.3s ease;
+            margin-top: 20px;
+        }
+        .heart:active { transform: scale(0.9); }
+
+        h1 { 
+            font-size: 24px; 
+            text-transform: uppercase; 
+            letter-spacing: 3px; 
+            margin: 25px 0 10px; 
+            color: #fff; 
+            text-shadow: 0 0 10px rgba(255,255,255,0.5);
+        }
+
+        p { 
+            font-size: 16px; 
+            font-weight: 300;
+            color: #d4af37;
+            margin-bottom: 0;
+            transition: 1s;
+        }
+
+        @keyframes pulse { 
+            0% { transform: scale(1); } 
+            50% { transform: scale(1.1); } 
+            100% { transform: scale(1); } 
+        }
+    </style>
+</head>
+<body>
+
+    <canvas id="canvas"></canvas>
+
+    <div class="container">
+        <div class="age-badge">
+            LEVEL <span id="age-number">0</span>
+            <div style="font-size: 10px; margin-top: 5px;">SYSTEM STATUS: EXCELLENT</div>
+        </div>
+
+        <div class="heart" onclick="startSurprise()">❤️</div>
+        <h1 id="title">Для моей Ксюши</h1>
+        <p id="status">Нажми на сердце, чтобы активировать</p>
+        
+        <audio id="voice" src="ksusha.mp3"></audio>
+        <audio id="music" src="music.mp3" loop></audio>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        let particles = [];
+        let animationActive = false;
+
+        // ЭФФЕКТ СЧЕТЧИКА ВОЗРАСТА
+        window.onload = function() {
+            let count = 0;
+            let target = 34;
+            let speed = 40; 
+            let counter = setInterval(() => {
+                if (count >= target) {
+                    clearInterval(counter);
+                } else {
+                    count++;
+                    document.getElementById('age-number').innerText = count;
+                }
+            }, speed);
+        };
+
+        function resize() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+        window.addEventListener('resize', resize);
+        resize();
+
+        class Particle {
+            constructor() {
+                this.reset();
+            }
+            reset() {
+                this.x = Math.random() * canvas.width;
+                this.y = -50;
+                this.size = Math.random() * 15 + 10;
+                this.speed = Math.random() * 2 + 1;
+                this.text = Math.random() > 0.3 ? '❤️' : '✨';
+                this.opacity = Math.random() * 0.5 + 0.5;
+                this.swing = Math.random() * 2; 
+            }
+            update() {
+                this.y += this.speed;
+                this.x += Math.sin(this.y / 30) * this.swing;
+                if (this.y > canvas.height) this.reset();
+            }
+            draw() {
+                ctx.globalAlpha = this.opacity;
+                ctx.font = `${this.size}px serif`;
+                ctx.fillStyle = "#d4af37";
+                ctx.fillText(this.text, this.x, this.y);
+            }
+        }
+
+        function startSurprise() {
+            if (animationActive) return; 
+            animationActive = true;
+
+            const voice = document.getElementById('voice');
+            const music = document.getElementById('music');
+            
+            music.volume = 0.2; 
+            music.play().catch(e => console.log("Нужно взаимодействие"));
+            
+            setTimeout(() => {
+                voice.volume = 1.0;
+                voice.play();
+            }, 800);
+
+            document.getElementById('title').innerText = "С ДНЕМ РОЖДЕНИЯ!";
+            document.getElementById('status').innerText = "Я тебя люблю!";
+            document.getElementById('status').style.color = "#fff";
+
+            voice.onended = function() {
+                let fadeOut = setInterval(() => {
+                    if (music.volume > 0.02) {
+                        music.volume -= 0.02;
+                    } else {
+                        music.pause();
+                        clearInterval(fadeOut);
+                        document.getElementById('title').innerText = "ВМЕСТЕ НАВСЕГДА";
+                        document.getElementById('status').innerText = "МЫ ВСЁ ПРЕОДОЛЕЕМ. ВМЕСТЕ.";
+                        document.getElementById('status').style.color = "#d4af37";
+                    }
+                }, 200);
+            };
+            
+            for(let i = 0; i < 40; i++) {
+                particles.push(new Particle());
+            }
+            animate();
+        }
+
+        function animate() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            particles.forEach(p => {
+                p.update();
+                p.draw();
+            });
+            requestAnimationFrame(animate);
+        }
+    </script>
+</body>
+</html>
