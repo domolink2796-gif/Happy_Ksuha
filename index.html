@@ -65,6 +65,15 @@
             display: block;
         }
 
+        /* Стиль для динамического времени */
+        #age-days {
+            font-size: 14px; 
+            color: rgba(212, 175, 55, 0.9);
+            display: block;
+            margin-top: -5px;
+            font-weight: 300;
+        }
+
         .heart { 
             font-size: 90px; 
             cursor: pointer; 
@@ -107,6 +116,7 @@
     <div class="container">
         <div class="age-badge">
             LEVEL <span id="age-number">0</span>
+            <span id="age-days"></span> 
             <div style="font-size: 10px; margin-top: 5px;">SYSTEM STATUS: EXCELLENT</div>
         </div>
 
@@ -130,12 +140,52 @@
 
         window.onload = function() {
             let count = 0;
-            let target = 34;
+            let target = 34; // Целевой уровень (возраст)
             let counter = setInterval(() => {
-                if (count >= target) clearInterval(counter);
+                if (count >= target) {
+                    clearInterval(counter);
+                    startDynamicCounter(); 
+                }
                 else { count++; document.getElementById('age-number').innerText = count; }
             }, 40);
         };
+
+        // ДИНАМИЧЕСКИЙ СЧЕТ С КАЛЕНДАРНОЙ ТОЧНОСТЬЮ
+        function startDynamicCounter() {
+            // Дата рождения: 1 апреля 1992 года, 06:15:00
+            const birthDate = new Date(1992, 3, 1, 6, 15, 0); 
+
+            function update() {
+                const now = new Date();
+                
+                // 1. Вычисляем полные годы
+                let years = now.getFullYear() - birthDate.getFullYear();
+                
+                // Находим дату последнего прошедшего дня рождения
+                let lastBirthday = new Date(now.getFullYear(), birthDate.getMonth(), birthDate.getDate(), birthDate.getHours(), birthDate.getMinutes(), 0);
+                
+                // Если в этом году 06:15 еще не наступило, берем прошлый год
+                if (now < lastBirthday) {
+                    years--;
+                    lastBirthday = new Date(now.getFullYear() - 1, birthDate.getMonth(), birthDate.getDate(), birthDate.getHours(), birthDate.getMinutes(), 0);
+                }
+
+                // 2. Считаем точную разницу от этого момента
+                const diff = now - lastBirthday;
+
+                const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+                const hours = Math.floor((diff / (1000 * 60 * 60)) % 24);
+                const minutes = Math.floor((diff / (1000 * 60)) % 60);
+                const seconds = Math.floor((diff / 1000) % 60);
+                
+                document.getElementById('age-number').innerText = years;
+                document.getElementById('age-days').innerText = 
+                    `+ ${days}D ${hours}H ${minutes}M ${seconds}S`;
+            }
+
+            setInterval(update, 1000); 
+            update();
+        }
 
         function resize() {
             canvasBg.width = canvasDust.width = window.innerWidth;
@@ -144,7 +194,6 @@
         window.addEventListener('resize', resize);
         resize();
 
-        // ФОНОВЫЕ СЕРДЦА
         class Particle {
             constructor() { this.reset(); }
             reset() {
@@ -167,7 +216,6 @@
             }
         }
 
-        // КЛАСС ЗОЛОТОЙ ПЫЛИ
         class StarDust {
             constructor(x, y) {
                 this.x = x;
@@ -184,7 +232,6 @@
             update() {
                 this.x += this.dx;
                 this.y += this.dy;
-                // Плавное замедление (эффект зависания)
                 this.dx *= 0.95;
                 this.dy *= 0.95;
                 this.life -= this.decay;
@@ -220,7 +267,6 @@
             const centerX = rect.left + rect.width / 2;
             const centerY = rect.top + rect.height / 2;
 
-            // Создаем облако пыли (120 мелких частиц)
             for(let i = 0; i < 120; i++) {
                 dustParticles.push(new StarDust(centerX, centerY));
             }
@@ -239,15 +285,12 @@
         function animate() {
             ctxBg.clearRect(0, 0, canvasBg.width, canvasBg.height);
             ctxDust.clearRect(0, 0, canvasDust.width, canvasDust.height);
-
             particles.forEach(p => { p.update(); p.draw(); });
-
             dustParticles.forEach((d, index) => {
                 d.update();
                 d.draw();
                 if (d.life <= 0) dustParticles.splice(index, 1);
             });
-
             requestAnimationFrame(animate);
         }
     </script>
