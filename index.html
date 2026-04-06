@@ -34,7 +34,7 @@
             background-color: var(--text-dim);
             color: white;
             border: none;
-            padding: 15px 25px; /* Увеличил для удобства нажатия на телефоне */
+            padding: 15px 25px;
             font-size: 16px;
             font-weight: bold;
             border-radius: 5px;
@@ -69,7 +69,7 @@
 
 <header>
     <div id="status">ОЖИДАНИЕ USB...</div>
-    <button id="connectBtn">ПОДКЛЮЧИТЬ USB (OBD2)</button>
+    <button id="connectBtn">ПОДКЛЮЧИТЬ USB (FTDI)</button>
 </header>
 
 <div class="grid">
@@ -116,7 +116,6 @@
     let buffer = '';
     
     let currentSpeed = 0;
-    let currentMaf = 0;
     let lastTime = Date.now();
     let tripDistance = parseFloat(localStorage.getItem('tripDistance')) || 0.0;
 
@@ -149,53 +148,42 @@
         }
     }
 
-    // Инициализация Serial API через полифилл или нативно
-    async function getPort() {
-        if ('serial' in navigator) {
-            return await navigator.serial.requestPort();
-        } else if (window.serial) {
-            // Использование полифилла WebUSB
-            return await window.serial.requestPort();
-        } else {
-            throw new Error("Web Serial не поддерживается этим браузером.");
-        }
-    }
-
     els.connectBtn.addEventListener('click', async () => {
-        // Проверка защищенного контекста
-        if (window.isSecureContext === false) {
-            els.status.innerText = "ОШИБКА: НУЖЕН HTTPS (ИЛИ LOCALHOST)";
-            alert("USB на Android работает только через HTTPS. Загрузи файл на GitHub Pages или используй локальный сервер.");
+        // Определяем API: полифилл для Android или нативный для Chrome
+        const serialManager = (typeof serial !== 'undefined') ? serial : navigator.serial;
+
+        if (!serialManager) {
+            alert("Serial API не поддерживается в этом браузере.");
             return;
         }
 
         try {
-            els.status.innerText = "ПОИСК УСТРОЙСТВ...";
-            // Передаем пустой фильтр, это часто «будит» диалоговое окно на Android
-            port = await getPort();
+            els.status.innerText = "ИЩУ ТВОЙ FTDI...";
+            
+            // Фильтры по данным твоего скриншота: VID 0403, PID 6001
+            const filters = [
+                { usbVendorId: 0x0403, usbProductId: 0x6001 }, // Твой ELS27
+                { usbVendorId: 0x1A86, usbProductId: 0x7523 }  // Запасной для CH340
+            ];
+
+            port = await serialManager.requestPort({ filters });
 
             await port.open({ baudRate: 38400 });
 
             writer = port.writable.getWriter();
             isConnected = true;
-            els.status.innerText = "USB ПОДКЛЮЧЕН. ИНИЦИАЛИЗАЦИЯ...";
+            els.status.innerText = "ПОДКЛЮЧЕНО К FTDI!";
             els.status.style.color = "var(--text-main)";
             els.connectBtn.style.display = "none";
 
             readLoop();
 
-            // Команды инициализации ELM327
+            // Инициализация OBD2
             await sendRawCommand('ATZ');
-            await new Promise(r => setTimeout(r, 1000));
+            await new Promise(r => setTimeout(r, 800));
             await sendRawCommand('ATE0');
-            await new Promise(r => setTimeout(r, 500));
             await sendRawCommand('ATSP0');
-            await new Promise(r => setTimeout(r, 1000));
 
-            commandQueue.push('0131'); 
-            els.status.innerText = "СВЯЗЬ УСТАНОВЛЕНА. СБОР ДАННЫХ...";
-            
-            // Запуск цикла опроса
             pollNext();
 
         } catch (err) {
@@ -223,7 +211,7 @@
                     let response = buffer.replace('>', '').trim();
                     buffer = '';
                     processResponse(response);
-                    setTimeout(pollNext, 100); 
+                    setTimeout(pollNext, 150); 
                 }
             }
         } catch (error) {
@@ -238,8 +226,7 @@
         hexStr = hexStr.replace(/\s+/g, '').toUpperCase();
         if (hexStr.includes('410D')) {
             let idx = hexStr.indexOf('410D') + 4;
-            let hexVal = hexStr.substring(idx, idx + 2);
-            currentSpeed = parseInt(hexVal, 16);
+            currentSpeed = parseInt(hexStr.substring(idx, idx + 2), 16);
             els.speed.innerText = currentSpeed;
             let now = Date.now();
             updateTripMeter(currentSpeed, now - lastTime);
@@ -247,35 +234,25 @@
         }
         if (hexStr.includes('4110')) {
             let idx = hexStr.indexOf('4110') + 4;
-            let hexVal = hexStr.substring(idx, idx + 4);
-            let A = parseInt(hexVal.substring(0, 2), 16);
-            let B = parseInt(hexVal.substring(2, 4), 16);
-            currentMaf = ((A * 256) + B) / 100;
-            let litersPerHour = currentMaf * FUEL_MAGIC_NUMBER;
+            let A = parseInt(hexStr.substring(idx, idx + 2), 16);
+            let B = parseInt(hexStr.substring(idx + 2, idx + 4), 16);
+            let maf = ((A * 256) + B) / 100;
+            let lph = maf * FUEL_MAGIC_NUMBER;
             if (currentSpeed === 0) {
-                els.cons.innerText = litersPerHour.toFixed(1);
+                els.cons.innerText = lph.toFixed(1);
                 els.consUnit.innerText = 'Л / Ч';
             } else {
-                let litersPer100 = (litersPerHour / currentSpeed) * 100;
-                if (litersPer100 > 99.9) litersPer100 = 99.9; 
-                els.cons.innerText = litersPer100.toFixed(1);
+                let lp100 = (lph / currentSpeed) * 100;
+                els.cons.innerText = Math.min(lp100, 99.9).toFixed(1);
                 els.consUnit.innerText = 'Л / 100 КМ';
             }
         }
         if (hexStr.includes('412F')) {
             let idx = hexStr.indexOf('412F') + 4;
-            let hexVal = hexStr.substring(idx, idx + 2);
-            let percent = (parseInt(hexVal, 16) / 255);
-            let liters = TANK_VOLUME * percent;
+            let level = (parseInt(hexStr.substring(idx, idx + 2), 16) / 255);
+            let liters = TANK_VOLUME * level;
             els.fuel.innerText = liters.toFixed(1);
-            els.fuel.style.color = (liters < 7.0) ? "var(--text-warn)" : "var(--text-main)";
-        }
-        if (hexStr.includes('4131')) {
-            let idx = hexStr.indexOf('4131') + 4;
-            let hexVal = hexStr.substring(idx, idx + 4);
-            let A = parseInt(hexVal.substring(0, 2), 16);
-            let B = parseInt(hexVal.substring(2, 4), 16);
-            els.odo.innerText = (A * 256) + B;
+            els.fuel.style.color = (liters < 7) ? "var(--text-warn)" : "var(--text-main)";
         }
     }
 
