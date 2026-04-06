@@ -106,15 +106,10 @@
 </div>
 
 <script>
-    // Настройки авто
     const TANK_VOLUME = 45.0;
     const FUEL_MAGIC_NUMBER = 0.335;
 
     let device;
-    let interfaceNumber = 0;
-    let endpointIn = 0;
-    let endpointOut = 0;
-    
     let isConnected = false;
     let commandQueue = ['010D', '0110', '012F', '0131']; 
     let cmdIndex = 0;
@@ -144,24 +139,25 @@
         els.trip.innerText = '0.0';
     });
 
-    // --- ЛОГИКА USB (Твоя рабочая схема) ---
     els.connectBtn.addEventListener('click', async () => {
         try {
-            // Запрашиваем устройство (Окно, которое у тебя работает)
             device = await navigator.usb.requestDevice({ 
                 filters: [{ vendorId: 0x0403, productId: 0x6001 }] 
             });
 
             await device.open();
-            
-            // Выбираем конфигурацию и интерфейс
             if (device.configuration === null) await device.selectConfiguration(1);
             await device.claimInterface(0);
 
-            // Настройка чипа FTDI (Baudrate 38400)
+            // Инициализация FTDI (Baudrate 38400)
             await device.controlTransferOut({
                 requestType: 'vendor', recipient: 'device',
-                request: 0x03, value: 0x4138, index: 0x0000 
+                request: 0x00, value: 0x01, index: 0x00 // Reset
+            });
+            
+            await device.controlTransferOut({
+                requestType: 'vendor', recipient: 'device',
+                request: 0x03, value: 0x4138, index: 0x0000 // 38400
             });
 
             els.status.innerText = "ПОДКЛЮЧЕНО: " + device.productName;
@@ -169,37 +165,49 @@
             els.connectBtn.style.display = "none";
             isConnected = true;
 
-            // Запуск чтения и опроса
             startReading();
             
-            // Начальная инициализация ELM
-            await sendOBD("ATZ");
+            // Инициализация ELM для Ford
+            setTimeout(() => sendOBD("ATZ"), 500);
             setTimeout(() => sendOBD("ATE0"), 1000);
-            setTimeout(() => sendOBD("ATSP0"), 1500);
-            setTimeout(pollCycle, 2000);
+            setTimeout(() => sendOBD("ATH0"), 1300); // Отключаем заголовки
+            setTimeout(() => sendOBD("ATSP0"), 1600); // Автопротокол
+            setTimeout(pollCycle, 2500);
 
         } catch (err) {
             els.status.innerText = "ОШИБКА: " + err.message;
-            console.error(err);
         }
     });
 
     async function sendOBD(cmd) {
         if (!isConnected) return;
         const data = new TextEncoder().encode(cmd + '\r');
-        await device.transferOut(2, data); // Endpoint 2 обычно Out для FTDI
+        try {
+            await device.transferOut(2, data);
+        } catch(e) { isConnected = false; }
     }
 
     async function startReading() {
+        const decoder = new TextDecoder();
         while (isConnected) {
             try {
-                const result = await device.transferIn(1, 64); // Endpoint 1 обычно In для FTDI
-                const text = new TextDecoder().decode(result.data);
-                buffer += text;
+                const result = await device.transferIn(1, 64);
+                if (result.data.byteLength > 2) {
+                    // FTDI вставляет 2 байта статуса в начало КАЖДОГО пакета. Отрезаем их.
+                    const actualData = new Uint8Array(result.data.buffer, 2);
+                    buffer += decoder.decode(actualData);
 
-                if (buffer.includes('>')) {
-                    processResponse(buffer.replace('>', '').trim());
-                    buffer = '';
+                    if (buffer.includes('>')) {
+                        let responses = buffer.split('\r');
+                        for (let res of responses) {
+                            if (res.trim() && res.trim() !== '>') {
+                                processResponse(res.trim());
+                            }
+                        }
+                        buffer = '';
+                        // После получения '>', запрашиваем следующий параметр через паузу
+                        setTimeout(pollCycle, 50);
+                    }
                 }
             } catch (err) {
                 isConnected = false;
@@ -210,34 +218,35 @@
     }
 
     function pollCycle() {
-        if (!isConnected) return;
+        if (!isConnected || buffer.length > 0) return;
         sendOBD(commandQueue[cmdIndex]);
         cmdIndex = (cmdIndex + 1) % commandQueue.length;
-        setTimeout(pollCycle, 200); // Опрос каждые 200мс
     }
 
-    // --- ОБРАБОТКА ДАННЫХ (Твоя логика) ---
     function processResponse(hexStr) {
-        hexStr = hexStr.replace(/\s+/g, '').toUpperCase();
+        // Убираем пробеги и мусор
+        let clean = hexStr.replace(/\s+/g, '').toUpperCase();
         
-        // Скорость
-        if (hexStr.includes('410D')) {
-            let idx = hexStr.indexOf('410D') + 4;
-            currentSpeed = parseInt(hexStr.substring(idx, idx + 2), 16);
+        // 01 0D - Скорость
+        if (clean.includes('410D')) {
+            let val = clean.substring(clean.indexOf('410D') + 4, clean.indexOf('410D') + 6);
+            currentSpeed = parseInt(val, 16);
             els.speed.innerText = currentSpeed;
             
             let now = Date.now();
             let hours = (now - lastTime) / 3600000;
-            tripDistance += (currentSpeed * hours);
-            localStorage.setItem('tripDistance', tripDistance);
-            els.trip.innerText = tripDistance.toFixed(1);
+            if (currentSpeed > 0) {
+                tripDistance += (currentSpeed * hours);
+                localStorage.setItem('tripDistance', tripDistance.toString());
+                els.trip.innerText = tripDistance.toFixed(1);
+            }
             lastTime = now;
         }
         
-        // Расход (MAF)
-        if (hexStr.includes('4110')) {
-            let idx = hexStr.indexOf('4110') + 4;
-            let maf = (parseInt(hexStr.substring(idx, idx + 4), 16)) / 100;
+        // 01 10 - Расход (MAF)
+        if (clean.includes('4110')) {
+            let val = clean.substring(clean.indexOf('4110') + 4, clean.indexOf('4110') + 8);
+            let maf = parseInt(val, 16) / 100;
             let lph = maf * FUEL_MAGIC_NUMBER;
             if (currentSpeed > 5) {
                 let lp100 = (lph / currentSpeed) * 100;
@@ -249,19 +258,19 @@
             }
         }
 
-        // Бак
-        if (hexStr.includes('412F')) {
-            let idx = hexStr.indexOf('412F') + 4;
-            let level = parseInt(hexStr.substring(idx, idx + 2), 16) / 255;
+        // 01 2F - Уровень топлива
+        if (clean.includes('412F')) {
+            let val = clean.substring(clean.indexOf('412F') + 4, clean.indexOf('412F') + 6);
+            let level = parseInt(val, 16) / 255;
             let liters = TANK_VOLUME * level;
             els.fuel.innerText = liters.toFixed(1);
             els.fuel.style.color = (liters < 7) ? "var(--text-warn)" : "var(--text-main)";
         }
 
-        // Одометр
-        if (hexStr.includes('4131')) {
-            let idx = hexStr.indexOf('4131') + 4;
-            els.odo.innerText = parseInt(hexStr.substring(idx, idx + 4), 16);
+        // 01 31 - Пробег после сброса
+        if (clean.includes('4131')) {
+            let val = clean.substring(clean.indexOf('4131') + 4, clean.indexOf('4131') + 8);
+            els.odo.innerText = parseInt(val, 16);
         }
     }
 </script>
