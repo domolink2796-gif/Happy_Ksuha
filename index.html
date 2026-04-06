@@ -4,7 +4,6 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>X-CONECT: Digital Dashboard</title>
-    <script src="https://unpkg.com/web-serial-polyfill@1.0.15/dist/serial.js"></script>
     <style>
         :root {
             --bg-color: #000000;
@@ -31,14 +30,15 @@
             border-bottom: 2px solid var(--text-dim);
         }
         button {
-            background-color: var(--text-dim);
-            color: white;
-            border: none;
-            padding: 12px 20px;
-            font-size: 16px;
+            background-color: #111;
+            color: var(--text-main);
+            border: 2px solid var(--text-main);
+            padding: 15px 25px;
+            font-size: 18px;
             font-weight: bold;
-            border-radius: 5px;
+            border-radius: 10px;
             cursor: pointer;
+            box-shadow: 0 0 15px rgba(0, 255, 0, 0.2);
         }
         button:active { background-color: var(--text-main); color: black; }
         .grid {
@@ -62,14 +62,14 @@
         .title { font-size: 14px; color: var(--text-accent); text-transform: uppercase; }
         .value { font-size: 10vw; font-weight: bold; line-height: 1.1; }
         .unit { font-size: 16px; color: var(--text-dim); }
-        #status { color: var(--text-warn); font-size: 12px; max-width: 60%; }
+        #status { color: var(--text-warn); font-size: 14px; font-weight: bold; }
     </style>
 </head>
 <body>
 
 <header>
-    <div id="status">ОЖИДАНИЕ USB...</div>
-    <button id="connectBtn">ПОДКЛЮЧИТЬ USB (FTDI)</button>
+    <div id="status">USB НЕ АКТИВИРОВАН</div>
+    <button id="connectBtn">АКТИВИРОВАТЬ USB</button>
 </header>
 
 <div class="grid">
@@ -106,10 +106,15 @@
 </div>
 
 <script>
+    // Настройки авто
     const TANK_VOLUME = 45.0;
     const FUEL_MAGIC_NUMBER = 0.335;
 
-    let port, reader, writer;
+    let device;
+    let interfaceNumber = 0;
+    let endpointIn = 0;
+    let endpointOut = 0;
+    
     let isConnected = false;
     let commandQueue = ['010D', '0110', '012F', '0131']; 
     let cmdIndex = 0;
@@ -139,56 +144,39 @@
         els.trip.innerText = '0.0';
     });
 
-    function updateTripMeter(speedKmH, timeDiffMs) {
-        if (speedKmH > 0) {
-            let hours = timeDiffMs / 3600000.0;
-            tripDistance += (speedKmH * hours);
-            localStorage.setItem('tripDistance', tripDistance.toString());
-            els.trip.innerText = tripDistance.toFixed(1);
-        }
-    }
-
-    // ОБЪЕДИНЕННАЯ ЛОГИКА ПОДКЛЮЧЕНИЯ
+    // --- ЛОГИКА USB (Твоя рабочая схема) ---
     els.connectBtn.addEventListener('click', async () => {
-        els.status.innerText = "ЗАПРОС ДОСТУПА...";
-        
         try {
-            // 1. Активация через WebUSB (вызывает системное окно)
-            await navigator.usb.requestDevice({ 
+            // Запрашиваем устройство (Окно, которое у тебя работает)
+            device = await navigator.usb.requestDevice({ 
                 filters: [{ vendorId: 0x0403, productId: 0x6001 }] 
             });
 
-            els.status.innerText = "ДОСТУП ЕСТЬ. ОТКРЫВАЮ ПОРТ...";
+            await device.open();
             
-            // 2. Использование Serial Polyfill
-            const serialManager = (typeof serial !== 'undefined') ? serial : navigator.serial;
+            // Выбираем конфигурацию и интерфейс
+            if (device.configuration === null) await device.selectConfiguration(1);
+            await device.claimInterface(0);
 
-            // Вместо повторного запроса окна, берем уже разрешенный порт
-            const ports = await serialManager.getPorts();
-            if (ports.length > 0) {
-                port = ports[0];
-            } else {
-                port = await serialManager.requestPort();
-            }
+            // Настройка чипа FTDI (Baudrate 38400)
+            await device.controlTransferOut({
+                requestType: 'vendor', recipient: 'device',
+                request: 0x03, value: 0x4138, index: 0x0000 
+            });
 
-            await port.open({ baudRate: 38400 });
-
-            writer = port.writable.getWriter();
-            isConnected = true;
-            els.status.innerText = "СВЯЗЬ УСТАНОВЛЕНА!";
+            els.status.innerText = "ПОДКЛЮЧЕНО: " + device.productName;
             els.status.style.color = "var(--text-main)";
             els.connectBtn.style.display = "none";
+            isConnected = true;
 
-            readLoop();
-
-            // 3. Инициализация ELM327
-            await sendRawCommand('ATZ');
-            await new Promise(r => setTimeout(r, 1000));
-            await sendRawCommand('ATE0');
-            await new Promise(r => setTimeout(r, 500));
-            await sendRawCommand('ATSP0');
-
-            pollNext();
+            // Запуск чтения и опроса
+            startReading();
+            
+            // Начальная инициализация ELM
+            await sendOBD("ATZ");
+            setTimeout(() => sendOBD("ATE0"), 1000);
+            setTimeout(() => sendOBD("ATSP0"), 1500);
+            setTimeout(pollCycle, 2000);
 
         } catch (err) {
             els.status.innerText = "ОШИБКА: " + err.message;
@@ -196,88 +184,85 @@
         }
     });
 
-    async function sendRawCommand(cmd) {
-        if (writer) {
-            const data = new TextEncoder().encode(cmd + '\r');
-            await writer.write(data);
-        }
+    async function sendOBD(cmd) {
+        if (!isConnected) return;
+        const data = new TextEncoder().encode(cmd + '\r');
+        await device.transferOut(2, data); // Endpoint 2 обычно Out для FTDI
     }
 
-    async function readLoop() {
-        reader = port.readable.getReader();
-        const decoder = new TextDecoder();
-        try {
-            while (true) {
-                const { value, done } = await reader.read();
-                if (done) break;
-                buffer += decoder.decode(value);
+    async function startReading() {
+        while (isConnected) {
+            try {
+                const result = await device.transferIn(1, 64); // Endpoint 1 обычно In для FTDI
+                const text = new TextDecoder().decode(result.data);
+                buffer += text;
+
                 if (buffer.includes('>')) {
-                    let response = buffer.replace('>', '').trim();
+                    processResponse(buffer.replace('>', '').trim());
                     buffer = '';
-                    processResponse(response);
-                    setTimeout(pollNext, 150); 
                 }
+            } catch (err) {
+                isConnected = false;
+                els.status.innerText = "СВЯЗЬ ПОТЕРЯНА";
+                break;
             }
-        } catch (error) {
-            els.status.innerText = "ОБРЫВ СВЯЗИ";
-            els.status.style.color = "var(--text-warn)";
-        } finally {
-            reader.releaseLock();
         }
     }
 
+    function pollCycle() {
+        if (!isConnected) return;
+        sendOBD(commandQueue[cmdIndex]);
+        cmdIndex = (cmdIndex + 1) % commandQueue.length;
+        setTimeout(pollCycle, 200); // Опрос каждые 200мс
+    }
+
+    // --- ОБРАБОТКА ДАННЫХ (Твоя логика) ---
     function processResponse(hexStr) {
         hexStr = hexStr.replace(/\s+/g, '').toUpperCase();
         
-        // 010D - Скорость
+        // Скорость
         if (hexStr.includes('410D')) {
             let idx = hexStr.indexOf('410D') + 4;
             currentSpeed = parseInt(hexStr.substring(idx, idx + 2), 16);
             els.speed.innerText = currentSpeed;
+            
             let now = Date.now();
-            updateTripMeter(currentSpeed, now - lastTime);
+            let hours = (now - lastTime) / 3600000;
+            tripDistance += (currentSpeed * hours);
+            localStorage.setItem('tripDistance', tripDistance);
+            els.trip.innerText = tripDistance.toFixed(1);
             lastTime = now;
         }
         
-        // 0110 - MAF (Расход)
+        // Расход (MAF)
         if (hexStr.includes('4110')) {
             let idx = hexStr.indexOf('4110') + 4;
-            let A = parseInt(hexStr.substring(idx, idx + 2), 16);
-            let B = parseInt(hexStr.substring(idx + 2, idx + 4), 16);
-            let maf = ((A * 256) + B) / 100;
+            let maf = (parseInt(hexStr.substring(idx, idx + 4), 16)) / 100;
             let lph = maf * FUEL_MAGIC_NUMBER;
-            if (currentSpeed === 0) {
-                els.cons.innerText = lph.toFixed(1);
-                els.consUnit.innerText = 'Л / Ч';
-            } else {
+            if (currentSpeed > 5) {
                 let lp100 = (lph / currentSpeed) * 100;
-                els.cons.innerText = Math.min(lp100, 99.9).toFixed(1);
-                els.consUnit.innerText = 'Л / 100 КМ';
+                els.cons.innerText = Math.min(lp100, 99).toFixed(1);
+                els.consUnit.innerText = "Л/100КМ";
+            } else {
+                els.cons.innerText = lph.toFixed(1);
+                els.consUnit.innerText = "Л/Ч";
             }
         }
-        
-        // 012F - Бак
+
+        // Бак
         if (hexStr.includes('412F')) {
             let idx = hexStr.indexOf('412F') + 4;
-            let level = (parseInt(hexStr.substring(idx, idx + 2), 16) / 255);
+            let level = parseInt(hexStr.substring(idx, idx + 2), 16) / 255;
             let liters = TANK_VOLUME * level;
             els.fuel.innerText = liters.toFixed(1);
             els.fuel.style.color = (liters < 7) ? "var(--text-warn)" : "var(--text-main)";
         }
 
-        // 0131 - Пробег
+        // Одометр
         if (hexStr.includes('4131')) {
             let idx = hexStr.indexOf('4131') + 4;
-            let A = parseInt(hexStr.substring(idx, idx + 2), 16);
-            let B = parseInt(hexStr.substring(idx + 2, idx + 4), 16);
-            els.odo.innerText = (A * 256) + B;
+            els.odo.innerText = parseInt(hexStr.substring(idx, idx + 4), 16);
         }
-    }
-
-    function pollNext() {
-        if (!isConnected) return;
-        sendRawCommand(commandQueue[cmdIndex]);
-        cmdIndex = (cmdIndex + 1) % commandQueue.length;
     }
 </script>
 </body>
