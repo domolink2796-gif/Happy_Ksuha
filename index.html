@@ -14,70 +14,31 @@
         }
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body { 
-            background-color: var(--bg-color); 
-            color: var(--text-main); 
+            background-color: var(--bg-color); color: var(--text-main); 
             font-family: 'Courier New', Courier, monospace; 
-            display: flex; 
-            flex-direction: column; 
-            height: 100vh; 
-            overflow: hidden;
+            display: flex; flex-direction: column; height: 100vh; overflow: hidden;
         }
-        header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 10px;
-            border-bottom: 1px solid var(--text-dim);
-        }
-        #status { color: var(--text-accent); font-size: 12px; }
-        button {
-            background: #111; color: var(--text-main); border: 1px solid var(--text-main);
-            padding: 10px 20px; border-radius: 5px; font-weight: bold;
-        }
-        .grid {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            grid-gap: 10px;
-            padding: 10px;
-            flex-grow: 1;
-        }
-        .card {
-            border: 1px solid var(--text-dim);
-            border-radius: 8px;
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-            align-items: center;
-            position: relative;
-        }
+        header { display: flex; justify-content: space-between; align-items: center; padding: 10px; border-bottom: 2px solid var(--text-dim); }
+        button { background: #111; color: var(--text-main); border: 2px solid var(--text-main); padding: 10px 20px; border-radius: 10px; font-weight: bold; }
+        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; padding: 10px; flex-grow: 1; }
+        .card { border: 2px solid var(--text-dim); border-radius: 10px; display: flex; flex-direction: column; justify-content: center; align-items: center; padding: 10px; position: relative; }
         .card-full { grid-column: span 2; }
         .title { font-size: 12px; color: var(--text-accent); position: absolute; top: 5px; }
-        .value { font-size: 12vw; font-weight: bold; }
+        .value { font-size: 10vw; font-weight: bold; }
         .unit { font-size: 14px; color: #555; }
-        
-        /* Лог для отладки — увидим, что пишет машина */
-        #debugLog {
-            height: 60px;
-            background: #050505;
-            color: #555;
-            font-size: 10px;
-            overflow-y: auto;
-            padding: 5px;
-            border-top: 1px solid var(--text-dim);
-            white-space: pre-wrap;
-        }
+        #debug { height: 60px; background: #050505; color: #444; font-size: 10px; overflow-y: auto; padding: 5px; border-top: 1px solid var(--text-dim); }
     </style>
 </head>
 <body>
 
 <header>
-    <div id="status">ОТКЛЮЧЕНО</div>
-    <button id="connectBtn">ПОДКЛЮЧИТЬ USB</button>
+    <div id="status" style="color: var(--text-warn)">USB ВЫКЛЮЧЕН</div>
+    <button id="connectBtn">АКТИВИРОВАТЬ</button>
 </header>
 
 <div class="grid">
     <div class="card card-full">
-        <div class="title">ТОПЛИВО</div>
+        <div class="title">БАК (45L)</div>
         <div class="value" id="fuelVal">--</div>
         <div class="unit">ЛИТРОВ</div>
     </div>
@@ -92,124 +53,101 @@
         <div class="unit" id="consUnit">Л/Ч</div>
     </div>
     <div class="card card-full">
-        <div class="title">ПРОБЕГ ЭБУ</div>
-        <div class="value" id="odoVal" style="font-size: 8vw;">------</div>
+        <div class="title">ОДОМЕТР (ЭБУ)</div>
+        <div class="value" id="odoVal" style="font-size: 7vw;">------</div>
         <div class="unit">КМ</div>
     </div>
 </div>
 
-<div id="debugLog">Система готова. Ожидание подключения...</div>
+<div id="debug">Лог системы...</div>
 
 <script>
-    const TANK_MAX = 45;
-    let port, reader, writer;
-    let buffer = "";
+    let device;
+    let isConnected = false;
+    let buffer = '';
     let cmdIndex = 0;
-    const commands = ["010D", "0110", "012F", "0131"];
+    const commands = ['010D', '0110', '012F', '0131'];
 
-    const log = (msg) => {
-        const d = document.getElementById('debugLog');
-        d.innerText = msg + "\n" + d.innerText;
-    };
+    const log = (msg) => { document.getElementById('debug').innerText = msg + "\n" + document.getElementById('debug').innerText; };
 
     document.getElementById('connectBtn').addEventListener('click', async () => {
         try {
-            // Используем стандартный Serial API (без полифиллов)
-            port = await navigator.serial.requestPort();
-            await port.open({ baudRate: 38400 });
+            device = await navigator.usb.requestDevice({ filters: [{ vendorId: 0x0403, productId: 0x6001 }] });
+            await device.open();
+            if (device.configuration === null) await device.selectConfiguration(1);
+            await device.claimInterface(0);
 
-            document.getElementById('status').innerText = "СВЯЗЬ: OK";
+            // Настройка FTDI: Сброс и Скорость 38400
+            await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x00, value: 0x01, index: 0x00 });
+            await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x03, value: 0x4138, index: 0x0000 });
+
+            document.getElementById('status').innerText = "ПОДКЛЮЧЕНО";
+            document.getElementById('status').style.color = "var(--text-main)";
             document.getElementById('connectBtn').style.display = "none";
-            
-            writer = port.writable.getWriter();
+            isConnected = true;
+
             readLoop();
-
-            // Инициализация ELM327
-            await send("ATZ");
-            await new Promise(r => setTimeout(r, 1000));
-            await send("ATE0");
-            await send("ATH0");
-            await send("ATSP0");
             
-            // Запуск цикла опроса
-            poll();
+            // Инициализация ELM327
+            setTimeout(() => send("ATZ"), 500);
+            setTimeout(() => send("ATE0"), 1000);
+            setTimeout(() => send("ATSP0"), 1500);
+            setTimeout(poll, 2500);
 
-        } catch (err) {
-            log("ОШИБКА: " + err.message);
-        }
+        } catch (err) { log("Ошибка: " + err.message); }
     });
 
     async function send(cmd) {
-        if (!writer) return;
-        log("> " + cmd);
-        const data = new TextEncoder().encode(cmd + "\r");
-        await writer.write(data);
+        if (!isConnected) return;
+        const data = new TextEncoder().encode(cmd + '\r');
+        await device.transferOut(2, data);
     }
 
     async function readLoop() {
         const decoder = new TextDecoder();
-        reader = port.readable.getReader();
-        try {
-            while (true) {
-                const { value, done } = await reader.read();
-                if (done) break;
-                buffer += decoder.decode(value);
-                
-                if (buffer.includes(">")) {
-                    log("< " + buffer.trim());
-                    parseOBD(buffer);
-                    buffer = "";
-                    // Пауза перед следующим вопросом
-                    setTimeout(poll, 100);
+        while (isConnected) {
+            try {
+                const result = await device.transferIn(1, 64);
+                if (result.data.byteLength > 2) {
+                    // Отрезаем 2 статусных байта FTDI
+                    const actualData = new Uint8Array(result.data.buffer, 2);
+                    buffer += decoder.decode(actualData);
+
+                    if (buffer.includes('>')) {
+                        log("< " + buffer.trim());
+                        parse(buffer);
+                        buffer = '';
+                        setTimeout(poll, 100);
+                    }
                 }
-            }
-        } catch (e) {
-            log("ОШИБКА ЧТЕНИЯ: " + e.message);
+            } catch (e) { isConnected = false; break; }
         }
     }
 
     function poll() {
+        if (!isConnected) return;
         send(commands[cmdIndex]);
         cmdIndex = (cmdIndex + 1) % commands.length;
     }
 
-    function parseOBD(data) {
+    function parse(data) {
         const clean = data.replace(/\s+/g, '').toUpperCase();
-
-        // СКОРОСТЬ (01 0D)
-        if (clean.includes("410D")) {
-            const idx = clean.indexOf("410D") + 4;
-            const speed = parseInt(clean.substring(idx, idx + 2), 16);
-            if (!isNaN(speed)) document.getElementById('speedVal').innerText = speed;
+        if (clean.includes('410D')) {
+            const val = clean.substring(clean.indexOf('410D') + 4, clean.indexOf('410D') + 6);
+            document.getElementById('speedVal').innerText = parseInt(val, 16);
         }
-
-        // РАСХОД (01 10 - MAF)
-        if (clean.includes("4110")) {
-            const idx = clean.indexOf("4110") + 4;
-            const a = parseInt(clean.substring(idx, idx + 2), 16);
-            const b = parseInt(clean.substring(idx + 2, idx + 4), 16);
-            const maf = ((a * 256) + b) / 100;
-            const lph = maf * 0.335;
+        if (clean.includes('4110')) {
+            const val = clean.substring(clean.indexOf('4110') + 4, clean.indexOf('4110') + 8);
+            const lph = (parseInt(val, 16) / 100) * 0.335;
             document.getElementById('consVal').innerText = lph.toFixed(1);
         }
-
-        // БАК (01 2F)
-        if (clean.includes("412F")) {
-            const idx = clean.indexOf("412F") + 4;
-            const lvl = parseInt(clean.substring(idx, idx + 2), 16);
-            const liters = (lvl / 255) * TANK_MAX;
-            if (!isNaN(liters)) {
-                const f = document.getElementById('fuelVal');
-                f.innerText = liters.toFixed(1);
-                f.style.color = liters < 7 ? "var(--text-warn)" : "var(--text-main)";
-            }
+        if (clean.includes('412F')) {
+            const val = clean.substring(clean.indexOf('412F') + 4, clean.indexOf('412F') + 6);
+            document.getElementById('fuelVal').innerText = ((parseInt(val, 16) / 255) * 45).toFixed(1);
         }
-
-        // ПРОБЕГ (01 31)
-        if (clean.includes("4131")) {
-            const idx = clean.indexOf("4131") + 4;
-            const km = parseInt(clean.substring(idx, idx + 4), 16);
-            if (!isNaN(km)) document.getElementById('odoVal').innerText = km;
+        if (clean.includes('4131')) {
+            const val = clean.substring(clean.indexOf('4131') + 4, clean.indexOf('4131') + 8);
+            document.getElementById('odoVal').innerText = parseInt(val, 16);
         }
     }
 </script>
