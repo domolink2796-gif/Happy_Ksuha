@@ -2,175 +2,58 @@
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>X-CONECT: Digital Dashboard</title>
-    <script src="https://unpkg.com/web-serial-polyfill@1.0.15/dist/serial.js"></script>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>X-CONECT: USB ACTIVATE</title>
     <style>
-        :root {
-            --bg-color: #000000;
-            --text-main: #00ff00;
-            --text-accent: #00bfff;
-            --text-warn: #ff4500;
-            --text-dim: #555555;
+        body { background: #000; color: #0f0; font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; }
+        #mainBtn { 
+            width: 80%; height: 100px; background: #111; color: #0f0; 
+            border: 3px solid #0f0; font-size: 20px; font-weight: bold; 
+            box-shadow: 0 0 20px #0f0; border-radius: 15px;
         }
-        * { box-sizing: border-box; margin: 0; padding: 0; }
-        body { 
-            background-color: var(--bg-color); 
-            color: var(--text-main); 
-            font-family: 'Courier New', Courier, monospace; 
-            display: flex; 
-            flex-direction: column; 
-            height: 100vh; 
-            overflow: hidden;
-        }
-        header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 10px 20px;
-            border-bottom: 2px solid var(--text-dim);
-        }
-        .btn-group { display: flex; gap: 5px; }
-        button {
-            background-color: var(--text-dim);
-            color: white;
-            border: none;
-            padding: 12px 15px;
-            font-size: 14px;
-            font-weight: bold;
-            border-radius: 5px;
-            cursor: pointer;
-        }
-        #connectBtn { background-color: #222; border: 1px solid var(--text-main); }
-        .grid {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            grid-template-rows: auto auto auto;
-            flex-grow: 1;
-            padding: 10px;
-            gap: 10px;
-        }
-        .card {
-            border: 2px solid var(--text-dim);
-            border-radius: 10px;
-            display: flex; flex-direction: column;
-            justify-content: center; align-items: center;
-            padding: 10px;
-        }
-        .card-full { grid-column: span 2; }
-        .title { font-size: 14px; color: var(--text-accent); text-transform: uppercase; }
-        .value { font-size: 10vw; font-weight: bold; }
-        .unit { font-size: 16px; color: var(--text-dim); }
-        #status { color: var(--text-warn); font-size: 11px; max-width: 50%; overflow: hidden; }
+        #mainBtn:active { background: #0f0; color: #000; }
+        #log { margin-top: 20px; font-size: 14px; text-align: center; color: #888; padding: 10px; }
     </style>
 </head>
 <body>
 
-<header>
-    <div id="status">ОЖИДАНИЕ...</div>
-    <div class="btn-group">
-        <button id="debugBtn">ИНФО</button>
-        <button id="connectBtn">ВХОД</button>
-    </div>
-</header>
-
-<div class="grid">
-    <div class="card card-full">
-        <div class="title">Топливо</div>
-        <div class="value" id="fuelVal">--</div>
-        <div class="unit">ЛИТРОВ</div>
-    </div>
-    <div class="card">
-        <div class="title">Скорость</div>
-        <div class="value" id="speedVal">0</div>
-        <div class="unit">КМ/Ч</div>
-    </div>
-    <div class="card">
-        <div class="title">Расход</div>
-        <div class="value" id="consVal">0.0</div>
-        <div class="unit" id="consUnit">Л/Ч</div>
-    </div>
-</div>
+    <button id="mainBtn">АКТИВИРОВАТЬ USB</button>
+    <div id="log">Нажми на кнопку, чтобы вызвать запрос системы</div>
 
 <script>
-    let port, reader, writer;
-    const els = {
-        status: document.getElementById('status'),
-        connectBtn: document.getElementById('connectBtn'),
-        debugBtn: document.getElementById('debugBtn'),
-        fuel: document.getElementById('fuelVal'),
-        speed: document.getElementById('speedVal'),
-        cons: document.getElementById('consVal'),
-        consUnit: document.getElementById('consUnit')
-    };
+    const btn = document.getElementById('mainBtn');
+    const log = document.getElementById('log');
 
-    // Кнопка ИНФО — проверим, что вообще видит браузер
-    els.debugBtn.addEventListener('click', async () => {
-        if (!navigator.usb) {
-            els.status.innerText = "USB API НЕДОСТУПНО";
-            return;
-        }
-        const devices = await navigator.usb.getDevices();
-        if (devices.length === 0) {
-            els.status.innerText = "USB: ПУСТО (ПРОВЕРЬ OTG)";
-        } else {
-            let info = devices.map(d => `${d.vendorId.toString(16)}:${d.productId.toString(16)}`).join(', ');
-            els.status.innerText = "ВИЖУ: " + info;
-            console.log(devices);
-        }
-    });
-
-    els.connectBtn.addEventListener('click', async () => {
+    btn.addEventListener('click', async () => {
+        log.innerText = "Запрашиваю доступ...";
+        
         try {
-            // Используем полифилл напрямую
-            if (typeof serial === 'undefined') {
-                els.status.innerText = "ОШИБКА: ПОЛИФИЛЛ НЕ ЗАГРУЖЕН";
-                return;
-            }
+            // Прямой запрос к твоему чипу FTDI (из скриншота)
+            const device = await navigator.usb.requestDevice({ 
+                filters: [{ vendorId: 0x0403, productId: 0x6001 }] 
+            });
 
-            els.status.innerText = "ВЫБЕРИ УСТРОЙСТВО...";
+            log.style.color = "#0ff";
+            log.innerText = "УСТРОЙСТВО ВЫБРАНО: " + device.productName;
+            alert("ЕСТЬ! Система дала добро. Теперь можно подключать логику.");
             
-            // Запрос без фильтров, чтобы показать ВСЕ устройства
-            port = await serial.requestPort(); 
-
-            await port.open({ baudRate: 38400 });
-            writer = port.writable.getWriter();
-            els.status.innerText = "СВЯЗЬ OK!";
-            els.status.style.color = "#0f0";
-            
-            startReading();
-            // Инициализация ELM
-            send('ATZ');
         } catch (err) {
-            els.status.innerText = "ОШИБКА: " + err.message;
+            console.error(err);
+            log.style.color = "#f00";
+            log.innerText = "ОШИБКА: " + err.message;
+            
+            if (err.name === 'SecurityError') {
+                alert("Браузер заблокировал вызов. Проверь, что зашел через HTTPS!");
+            } else if (err.name === 'NotFoundError') {
+                alert("Список пуст. Попробуй переткнуть кабель и нажать снова.");
+            }
         }
     });
 
-    async function send(cmd) {
-        if (writer) {
-            const data = new TextEncoder().encode(cmd + '\r');
-            await writer.write(data);
-        }
-    }
-
-    async function startReading() {
-        reader = port.readable.getReader();
-        const decoder = new TextDecoder();
-        let buffer = '';
-        try {
-            while (true) {
-                const { value, done } = await reader.read();
-                if (done) break;
-                buffer += decoder.decode(value);
-                if (buffer.includes('>')) {
-                    console.log("Ответ:", buffer);
-                    buffer = '';
-                    // Тут будет парсинг
-                }
-            }
-        } catch (e) {
-            els.status.innerText = "ОБРЫВ";
-        }
+    // Проверка поддержки
+    if (!navigator.usb) {
+        log.innerText = "Твой браузер вообще не поддерживает USB. Нужен Chrome!";
+        btn.disabled = true;
     }
 </script>
 </body>
