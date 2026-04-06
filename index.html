@@ -5,57 +5,29 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>X-CONECT: Digital Dashboard</title>
     <style>
-        :root {
-            --bg-color: #000000;
-            --text-main: #00ff00;
-            --text-accent: #00bfff;
-            --text-warn: #ff4500;
-            --text-dim: #555555;
-        }
+        :root { --bg-color: #000; --text-main: #0f0; --text-accent: #00bfff; --text-dim: #555; }
         * { box-sizing: border-box; margin: 0; padding: 0; }
-        body { 
-            background-color: var(--bg-color); color: var(--text-main); 
-            font-family: 'Courier New', Courier, monospace; 
-            display: flex; flex-direction: column; height: 100vh; overflow: hidden;
-        }
-        header {
-            display: flex; justify-content: space-between; align-items: center;
-            padding: 10px 20px; border-bottom: 2px solid var(--text-dim);
-        }
-        button {
-            background-color: #111; color: var(--text-main);
-            border: 2px solid var(--text-main); padding: 10px 20px;
-            font-size: 16px; font-weight: bold; border-radius: 5px; cursor: pointer;
-        }
-        .grid {
-            display: grid; grid-template-columns: 1fr 1fr; gap: 10px;
-            padding: 10px; flex-grow: 1;
-        }
-        .card {
-            border: 1px solid var(--text-dim); border-radius: 10px;
-            display: flex; flex-direction: column; justify-content: center;
-            align-items: center; padding: 20px; position: relative;
-        }
+        body { background: var(--bg-color); color: var(--text-main); font-family: monospace; display: flex; flex-direction: column; height: 100vh; }
+        header { display: flex; justify-content: space-between; align-items: center; padding: 10px 20px; border-bottom: 2px solid var(--text-dim); }
+        button { background: #111; color: var(--text-main); border: 2px solid var(--text-main); padding: 10px 20px; font-weight: bold; border-radius: 5px; }
+        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; padding: 10px; flex-grow: 1; }
+        .card { border: 1px solid var(--text-dim); border-radius: 10px; display: flex; flex-direction: column; justify-content: center; align-items: center; padding: 20px; position: relative; }
         .card-full { grid-column: span 2; }
         .title { font-size: 12px; color: var(--text-accent); position: absolute; top: 8px; left: 10px; }
         .value { font-size: 12vw; font-weight: bold; }
-        .unit { font-size: 16px; color: var(--text-dim); }
-        #console {
-            height: 60px; background: #050505; color: #444;
-            font-size: 10px; overflow-y: auto; padding: 5px; border-top: 1px solid var(--text-dim);
-        }
+        #console { height: 60px; background: #050505; color: #444; font-size: 10px; overflow-y: auto; padding: 5px; }
     </style>
 </head>
 <body>
 
 <header>
-    <div id="status" style="color: var(--text-warn)">ОТКЛЮЧЕНО</div>
-    <button id="connectBtn">ПОДКЛЮЧИТЬ USB</button>
+    <div id="status">USB НЕ ГОРЯЧИЙ</div>
+    <button id="connectBtn">ВЫБРАТЬ USB УСТРОЙСТВО</button>
 </header>
 
 <div class="grid">
     <div class="card card-full">
-        <div class="title">ТОПЛИВО (45L)</div>
+        <div class="title">ОСТАТОК В БАКЕ</div>
         <div class="value" id="fuelVal">--</div>
         <div class="unit">ЛИТРОВ</div>
     </div>
@@ -71,62 +43,48 @@
     </div>
 </div>
 
-<div id="console">Лог системы...</div>
+<div id="console">Ожидание...</div>
 
 <script>
     let device;
     let isConnected = false;
     let buffer = "";
 
-    const log = (m) => {
-        const c = document.getElementById('console');
-        c.innerText = m + "\n" + c.innerText;
-    };
+    const log = (m) => { document.getElementById('console').innerText = m + "\n" + document.getElementById('console').innerText; };
 
     document.getElementById('connectBtn').onclick = async () => {
         try {
-            // ТВОЯ ОРИГИНАЛЬНАЯ ЛОГИКА ВЫБОРА УСТРОЙСТВА
-            device = await navigator.usb.requestDevice({ 
-                filters: [{ vendorId: 0x0403, productId: 0x6001 }] 
-            });
-
+            // ТВОЙ РАБОЧИЙ МЕТОД
+            device = await navigator.usb.requestDevice({ filters: [{ vendorId: 0x0403, productId: 0x6001 }] });
             await device.open();
-            if (device.configuration === null) await device.selectConfiguration(1);
+            await device.selectConfiguration(1);
             await device.claimInterface(0);
 
-            // ДОБАВЛЕНО: Настройка скорости 38400 (без этого чип молчит)
-            await device.controlTransferOut({
-                requestType: 'vendor', recipient: 'device',
-                request: 0x03, value: 0x4138, index: 0
-            });
+            // Настройка скорости FTDI
+            await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x03, value: 0x4138, index: 0 });
 
-            document.getElementById('status').innerText = "СВЯЗЬ ЕСТЬ";
-            document.getElementById('status').style.color = "var(--text-main)";
+            document.getElementById('status').innerText = "ONLINE";
             document.getElementById('connectBtn').style.display = "none";
             isConnected = true;
-
             read();
 
-            // Инициализация ELM327
+            // Команды ELM
             setTimeout(() => send("ATZ"), 500);
             setTimeout(() => send("ATE0"), 1000);
             setTimeout(() => send("ATSP0"), 1500);
 
-            // Опрос (Обороты, Скорость, Бак)
             setInterval(() => {
                 if(isConnected) {
                     send("010C"); // Обороты
-                    setTimeout(() => send("010D"), 250); // Скорость
-                    setTimeout(() => send("012F"), 500); // Бак
+                    setTimeout(() => send("010D"), 300); // Скорость
+                    setTimeout(() => send("012F"), 600); // Бак
                 }
             }, 1200);
-
-        } catch (e) { log("Ошибка: " + e.message); }
+        } catch (e) { log("Error: " + e.message); }
     };
 
     async function send(c) {
-        if (!device) return;
-        await device.transferOut(2, new TextEncoder().encode(c + "\r"));
+        if (device) await device.transferOut(2, new TextEncoder().encode(c + "\r"));
     }
 
     async function read() {
@@ -135,40 +93,29 @@
             try {
                 const r = await device.transferIn(1, 64);
                 if (r.data.byteLength > 2) {
-                    // Важно: отрезаем 2 байта заголовка FTDI
-                    const data = new Uint8Array(r.data.buffer, 2);
-                    buffer += dec.decode(data);
-
+                    buffer += dec.decode(new Uint8Array(r.data.buffer, 2));
                     if (buffer.includes(">")) {
-                        log("< " + buffer.trim());
                         parse(buffer.toUpperCase());
                         buffer = "";
                     }
                 }
-            } catch (e) { isConnected = false; break; }
+            } catch (e) { break; }
         }
     }
 
-    function parse(data) {
-        const clean = data.replace(/\s+/g, '');
-        
-        // ОБОРОТЫ (41 0C)
-        if (clean.includes("410C")) {
-            const idx = clean.indexOf("410C") + 4;
-            const a = parseInt(clean.substring(idx, idx + 2), 16);
-            const b = parseInt(clean.substring(idx + 2, idx + 4), 16);
+    function parse(d) {
+        const c = d.replace(/\s+/g, '');
+        if (c.includes("410C")) {
+            const i = c.indexOf("410C") + 4;
+            const a = parseInt(c.substring(i, i + 2), 16), b = parseInt(c.substring(i + 2, i + 4), 16);
             document.getElementById("rpmVal").innerText = Math.round(((a * 256) + b) / 4);
         }
-        // СКОРОСТЬ (41 0D)
-        if (clean.includes("410D")) {
-            const idx = clean.indexOf("410D") + 4;
-            document.getElementById("speedVal").innerText = parseInt(clean.substring(idx, idx + 2), 16);
+        if (c.includes("410D")) {
+            document.getElementById("speedVal").innerText = parseInt(c.substring(c.indexOf("410D") + 4, c.indexOf("410D") + 6), 16);
         }
-        // БАК (41 2F)
-        if (clean.includes("412F")) {
-            const idx = clean.indexOf("412F") + 4;
-            const lvl = parseInt(clean.substring(idx, idx + 2), 16);
-            document.getElementById("fuelVal").innerText = ((lvl / 255) * 45).toFixed(1);
+        if (c.includes("412F")) {
+            const v = parseInt(c.substring(c.indexOf("412F") + 4, c.indexOf("412F") + 6), 16);
+            document.getElementById("fuelVal").innerText = ((v / 255) * 45).toFixed(1);
         }
     }
 </script>
