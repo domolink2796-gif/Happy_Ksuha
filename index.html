@@ -2,163 +2,101 @@
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>X-CONECT: Digital Dashboard</title>
-    <script src="https://unpkg.com/web-serial-polyfill@1.0.15/dist/serial.js"></script>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>X-CONECT EMERGENCY</title>
     <style>
-        :root {
-            --bg-color: #000000;
-            --text-main: #00ff00;
-            --text-accent: #00bfff;
-            --text-warn: #ff4500;
-            --text-dim: #222;
-        }
-        * { box-sizing: border-box; margin: 0; padding: 0; }
-        body { 
-            background-color: var(--bg-color); color: var(--text-main); 
-            font-family: 'Courier New', Courier, monospace; 
-            display: flex; flex-direction: column; height: 100vh; overflow: hidden;
-        }
-        header { display: flex; justify-content: space-between; align-items: center; padding: 10px; border-bottom: 2px solid var(--text-dim); }
-        button { background: #111; color: var(--text-main); border: 2px solid var(--text-main); padding: 12px 20px; border-radius: 10px; font-weight: bold; }
-        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; padding: 10px; flex-grow: 1; }
-        .card { border: 2px solid var(--text-dim); border-radius: 10px; display: flex; flex-direction: column; justify-content: center; align-items: center; position: relative; }
-        .card-full { grid-column: span 2; }
-        .title { font-size: 11px; color: var(--text-accent); position: absolute; top: 5px; text-transform: uppercase; }
-        .value { font-size: 11vw; font-weight: bold; }
-        .unit { font-size: 14px; color: #444; }
-        #console { height: 70px; background: #050505; color: #555; font-size: 10px; overflow-y: auto; padding: 5px; border-top: 1px solid var(--text-dim); white-space: pre-wrap; }
+        body { background: #000; color: #0f0; font-family: monospace; padding: 20px; text-align: center; }
+        .box { border: 2px solid #333; margin: 10px; padding: 20px; border-radius: 10px; }
+        .val { font-size: 50px; display: block; color: #0ff; }
+        #log { height: 100px; overflow: auto; font-size: 10px; color: #666; text-align: left; border: 1px solid #222; padding: 5px; }
+        button { width: 100%; height: 80px; background: #111; color: #0f0; border: 2px solid #0f0; font-size: 20px; margin-bottom: 20px; }
     </style>
 </head>
 <body>
 
-<header>
-    <div id="status" style="color: var(--text-warn)">USB ВЫКЛЮЧЕН</div>
-    <button id="connectBtn">ПОДКЛЮЧИТЬ</button>
-</header>
+    <button id="go">ЗАПУСТИТЬ ПАНЕЛЬ</button>
 
-<div class="grid">
-    <div class="card card-full">
-        <div class="title">Топливо в баке</div>
-        <div class="value" id="fuelVal">--</div>
-        <div class="unit">ЛИТРОВ</div>
+    <div class="box">
+        <span>СКОРОСТЬ</span>
+        <span id="s" class="val">--</span>
     </div>
-    <div class="card">
-        <div class="title">Скорость</div>
-        <div class="value" id="speedVal">0</div>
-        <div class="unit">КМ/Ч</div>
-    </div>
-    <div class="card">
-        <div class="title">Расход</div>
-        <div class="value" id="consVal">0.0</div>
-        <div class="unit" id="consUnit">Л/Ч</div>
-    </div>
-    <div class="card card-full">
-        <div class="title">Пробег (ЭБУ)</div>
-        <div class="value" id="odoVal" style="font-size: 7vw;">------</div>
-        <div class="unit">КМ</div>
-    </div>
-</div>
 
-<div id="console">Ожидание активации...</div>
+    <div class="box">
+        <span>БАК (ЛИТРЫ)</span>
+        <span id="f" class="val">--</span>
+    </div>
+
+    <div id="log">Состояние: Жду нажатия...</div>
 
 <script>
-    let port, reader, writer;
-    let isConnected = false;
-    let buffer = "";
-    let cmdIdx = 0;
-    const commands = ["010D", "0110", "012F", "0131"];
+    let dev;
+    const log = (m) => { document.getElementById('log').innerText = m + "\n" + document.getElementById('log').innerText; };
 
-    const log = (msg) => {
-        const c = document.getElementById('console');
-        c.innerText = msg + "\n" + c.innerText;
-    };
-
-    document.getElementById('connectBtn').addEventListener('click', async () => {
+    document.getElementById('go').onclick = async () => {
         try {
-            // Используем полифилл для доступа к FTDI через USB
-            const serialInstance = (typeof serial !== 'undefined') ? serial : navigator.serial;
-            
-            log("Запрос устройства...");
-            port = await serialInstance.requestPort({ 
-                filters: [{ usbVendorId: 0x0403, usbProductId: 0x6001 }] 
+            // 1. Выбор устройства
+            dev = await navigator.usb.requestDevice({ filters: [{ vendorId: 0x0403, productId: 0x6001 }] });
+            await dev.open();
+            await dev.selectConfiguration(1);
+            await dev.claimInterface(0);
+
+            // 2. Настройка скорости FTDI (38400)
+            await dev.controlTransferOut({
+                requestType: 'vendor', recipient: 'device',
+                request: 0x03, value: 0x4138, index: 0
             });
 
-            await port.open({ baudRate: 38400 });
-            
-            document.getElementById('status').innerText = "СВЯЗЬ ОК";
-            document.getElementById('status').style.color = "#0f0";
-            document.getElementById('connectBtn').style.display = "none";
-            isConnected = true;
+            log("USB ПОДКЛЮЧЕН. Опрашиваю ЭБУ...");
+            document.getElementById('go').style.display = 'none';
 
-            writer = port.writable.getWriter();
-            readLoop();
+            // 3. Запуск чтения
+            stream();
 
-            // Старт протокола Ford
-            setTimeout(() => send("ATZ"), 500);
-            setTimeout(() => send("ATE0"), 1000);
-            setTimeout(() => send("ATSP0"), 1500);
-            setTimeout(cycle, 2500);
-
-        } catch (err) {
-            log("Ошибка: " + err.message);
-        }
-    });
-
-    async function send(cmd) {
-        if (!writer) return;
-        log("> " + cmd);
-        await writer.write(new TextEncoder().encode(cmd + "\r"));
-    }
-
-    async function readLoop() {
-        reader = port.readable.getReader();
-        const decoder = new TextDecoder();
-        try {
-            while (true) {
-                const { value, done } = await reader.read();
-                if (done) break;
-                buffer += decoder.decode(value);
-                if (buffer.includes(">")) {
-                    log("< " + buffer.trim());
-                    parseData(buffer);
-                    buffer = "";
-                    setTimeout(cycle, 150); // Пауза между запросами
-                }
+            // 4. Команды инициализации
+            const init = ["ATZ", "ATE0", "ATSP0"];
+            for(let c of init) {
+                await send(c);
+                await new Promise(r => setTimeout(r, 500));
             }
-        } catch (e) { log("Обрыв связи"); }
+
+            // 5. Постоянный опрос
+            setInterval(async () => {
+                await send("010D"); // Скорость
+                setTimeout(() => send("012F"), 300); // Бак
+            }, 1000);
+
+        } catch (e) { log("ОШИБКА: " + e.message); }
+    };
+
+    async function send(c) {
+        if (!dev) return;
+        await dev.transferOut(2, new TextEncoder().encode(c + "\r"));
     }
 
-    function cycle() {
-        if (!isConnected) return;
-        send(commands[cmdIdx]);
-        cmdIdx = (cmdIdx + 1) % commands.length;
-    }
-
-    function parseData(data) {
-        const clean = data.replace(/\s+/g, '').toUpperCase();
-        
-        // Скорость (41 0D)
-        if (clean.includes("410D")) {
-            const hex = clean.substring(clean.indexOf("410D") + 4, clean.indexOf("410D") + 6);
-            document.getElementById("speedVal").innerText = parseInt(hex, 16);
-        }
-        // Бак (41 2F)
-        if (clean.includes("412F")) {
-            const hex = clean.substring(clean.indexOf("412F") + 4, clean.indexOf("412F") + 6);
-            const liters = (parseInt(hex, 16) / 255) * 45;
-            document.getElementById("fuelVal").innerText = liters.toFixed(1);
-        }
-        // Расход (41 10)
-        if (clean.includes("4110")) {
-            const hex = clean.substring(clean.indexOf("4110") + 4, clean.indexOf("4110") + 8);
-            const lph = (parseInt(hex, 16) / 100) * 0.335;
-            document.getElementById("consVal").innerText = lph.toFixed(1);
-        }
-        // Одометр (41 31)
-        if (clean.includes("4131")) {
-            const hex = clean.substring(clean.indexOf("4131") + 4, clean.indexOf("4131") + 8);
-            document.getElementById("odoVal").innerText = parseInt(hex, 16);
+    async function stream() {
+        const dec = new TextDecoder();
+        while (true) {
+            try {
+                const r = await dev.transferIn(1, 64);
+                if (r.data.byteLength > 2) {
+                    // Пропускаем первые 2 байта (статус FTDI)
+                    const txt = dec.decode(new Uint8Array(r.data.buffer, 2));
+                    log("ДАННЫЕ: " + txt);
+                    
+                    const clean = txt.replace(/\s+/g, '');
+                    
+                    // Парсим скорость
+                    if (clean.includes("410D")) {
+                        const hex = clean.substring(clean.indexOf("410D")+4, clean.indexOf("410D")+6);
+                        document.getElementById('s').innerText = parseInt(hex, 16);
+                    }
+                    // Парсим бак
+                    if (clean.includes("412F")) {
+                        const hex = clean.substring(clean.indexOf("412F")+4, clean.indexOf("412F")+6);
+                        document.getElementById('f').innerText = ((parseInt(hex, 16)/255)*45).toFixed(1);
+                    }
+                }
+            } catch (e) { break; }
         }
     }
 </script>
