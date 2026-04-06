@@ -2,297 +2,357 @@
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Для Ксюшеньки ❤️</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>X-CONECT: Digital Dashboard</title>
+    <!-- ДОБАВЛЕНО: Полифилл WebUSB для работы с OTG-переходниками на Android -->
+    <script src="https://unpkg.com/web-serial-polyfill@1.0.15/dist/serial.js"></script>
     <style>
+        :root {
+            --bg-color: #000000;
+            --text-main: #00ff00;
+            --text-accent: #00bfff;
+            --text-warn: #ff4500;
+            --text-dim: #555555;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
         body { 
-            margin: 0; 
-            background: #0b0b0b; 
-            color: #d4af37; 
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
+            background-color: var(--bg-color); 
+            color: var(--text-main); 
+            font-family: 'Courier New', Courier, monospace; 
             display: flex; 
-            align-items: center; 
-            justify-content: center; 
+            flex-direction: column; 
             height: 100vh; 
-            text-align: center; 
-            overflow: hidden; 
-            position: relative;
+            overflow: hidden;
         }
-
-        /* Фоновый слой (ЗА текстом) */
-        #canvasBackground { 
-            position: absolute; 
-            top: 0; 
-            left: 0; 
-            z-index: 1; 
-            pointer-events: none; 
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 20px;
+            border-bottom: 2px solid var(--text-dim);
         }
-
-        /* Слой магической пыли (ПЕРЕД текстом) */
-        #canvasDust { 
-            position: absolute; 
-            top: 0; 
-            left: 0; 
-            z-index: 10; 
-            pointer-events: none; 
-        }
-
-        .container { 
-            position: relative; 
-            z-index: 5; 
-            border: 2px solid #d4af37; 
-            padding: 50px 30px; 
-            border-radius: 40px; 
-            background: rgba(20, 20, 20, 0.85); 
-            backdrop-filter: blur(15px); 
-            box-shadow: 0 0 60px rgba(212, 175, 55, 0.4); 
-            max-width: 320px;
-            border: 1px solid rgba(212, 175, 55, 0.5);
-        }
-
-        .age-badge {
-            font-size: 14px;
-            letter-spacing: 2px;
-            color: rgba(212, 175, 55, 0.7);
-            margin-bottom: 10px;
-            font-family: 'Courier New', monospace;
-        }
-        #age-number {
-            font-size: 42px;
+        button {
+            background-color: var(--text-dim);
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            font-size: 16px;
             font-weight: bold;
-            color: #fff;
-            text-shadow: 0 0 20px #d4af37;
-            display: block;
+            border-radius: 5px;
+            cursor: pointer;
         }
-
-        /* Стиль для динамического времени */
-        #age-days {
-            font-size: 14px; 
-            color: rgba(212, 175, 55, 0.9);
-            display: block;
-            margin-top: -5px;
-            font-weight: 300;
+        button:active { background-color: var(--text-main); color: black; }
+        .grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            grid-template-rows: auto auto auto;
+            flex-grow: 1;
+            padding: 10px;
+            gap: 10px;
         }
-
-        .heart { 
-            font-size: 90px; 
-            cursor: pointer; 
-            filter: drop-shadow(0 0 20px #ff4d4d); 
-            animation: pulse 1.2s infinite; 
-            transition: transform 0.3s ease;
-            margin-top: 20px;
+        .card {
+            border: 2px solid var(--text-dim);
+            border-radius: 10px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            padding: 10px;
         }
-        .heart:active { transform: scale(0.9); }
-
-        h1 { 
-            font-size: 24px; 
-            text-transform: uppercase; 
-            letter-spacing: 3px; 
-            margin: 25px 0 10px; 
-            color: #fff; 
-            text-shadow: 0 0 10px rgba(255,255,255,0.5);
+        .card-full {
+            grid-column: span 2;
         }
-
-        p { 
-            font-size: 16px; 
-            font-weight: 300;
-            color: #d4af37;
-            margin-bottom: 0;
-            transition: 1s;
+        .title {
+            font-size: 14px;
+            color: var(--text-accent);
+            text-transform: uppercase;
         }
-
-        @keyframes pulse { 
-            0% { transform: scale(1); } 
-            50% { transform: scale(1.1); } 
-            100% { transform: scale(1); } 
+        .value {
+            font-size: 10vw; /* Адаптивный размер для телефона */
+            font-weight: bold;
+            line-height: 1.1;
         }
+        .unit {
+            font-size: 16px;
+            color: var(--text-dim);
+        }
+        #status { color: var(--text-warn); font-size: 12px; }
     </style>
 </head>
 <body>
 
-    <canvas id="canvasBackground"></canvas>
-    <canvas id="canvasDust"></canvas>
+<header>
+    <div id="status">ОЖИДАНИЕ USB...</div>
+    <button id="connectBtn">ПОДКЛЮЧИТЬ USB (OBD2)</button>
+</header>
 
-    <div class="container">
-        <div class="age-badge">
-            LEVEL <span id="age-number">0</span>
-            <span id="age-days"></span> 
-            <div style="font-size: 10px; margin-top: 5px;">SYSTEM STATUS: EXCELLENT</div>
-        </div>
-
-        <div id="mainHeart" class="heart" onclick="startSurprise(event)">❤️</div>
-        <h1 id="title">Для моей Ксюши</h1>
-        <p id="status">Нажми на сердце, чтобы активировать</p>
-        
-        <audio id="voice" src="ksusha.mp3"></audio>
-        <audio id="music" src="music.mp3" loop></audio>
+<div class="grid">
+    <!-- Топливо (Центр внимания) -->
+    <div class="card card-full">
+        <div class="title">Остаток в баке (45L MAX)</div>
+        <div class="value" id="fuelVal">--</div>
+        <div class="unit">ЛИТРОВ</div>
     </div>
 
-    <script>
-        const canvasBg = document.getElementById('canvasBackground');
-        const ctxBg = canvasBg.getContext('2d');
-        const canvasDust = document.getElementById('canvasDust');
-        const ctxDust = canvasDust.getContext('2d');
+    <!-- Скорость -->
+    <div class="card">
+        <div class="title">Скорость</div>
+        <div class="value" style="color: var(--text-main);" id="speedVal">0</div>
+        <div class="unit">КМ/Ч</div>
+    </div>
 
-        let particles = [];
-        let dustParticles = []; 
-        let animationActive = false;
+    <!-- Расход (Автопереключение л/ч и л/100км) -->
+    <div class="card">
+        <div class="title">Расход</div>
+        <div class="value" id="consVal">0.0</div>
+        <div class="unit" id="consUnit">Л / Ч</div>
+    </div>
 
-        window.onload = function() {
-            let count = 0;
-            let target = 34; // Целевой уровень (возраст)
-            let counter = setInterval(() => {
-                if (count >= target) {
-                    clearInterval(counter);
-                    startDynamicCounter(); 
-                }
-                else { count++; document.getElementById('age-number').innerText = count; }
-            }, 40);
-        };
+    <!-- Одометр -->
+    <div class="card">
+        <div class="title">Пробег (ЭБУ)</div>
+        <div class="value" style="font-size: 6vw;" id="odoVal">------</div>
+        <div class="unit">КМ</div>
+    </div>
 
-        // ДИНАМИЧЕСКИЙ СЧЕТ С КАЛЕНДАРНОЙ ТОЧНОСТЬЮ
-        function startDynamicCounter() {
-            // Дата рождения: 1 апреля 1992 года, 06:15:00
-            const birthDate = new Date(1992, 3, 1, 6, 15, 0); 
+    <!-- Суточный пробег -->
+    <div class="card">
+        <div class="title">Суточный пробег</div>
+        <div class="value" style="font-size: 6vw;" id="tripVal">0.0</div>
+        <div class="unit">КМ</div>
+        <button id="resetTripBtn" style="margin-top: 5px; padding: 5px 10px; font-size: 12px;">СБРОС</button>
+    </div>
+</div>
 
-            function update() {
-                const now = new Date();
-                
-                // 1. Вычисляем полные годы
-                let years = now.getFullYear() - birthDate.getFullYear();
-                
-                // Находим дату последнего прошедшего дня рождения
-                let lastBirthday = new Date(now.getFullYear(), birthDate.getMonth(), birthDate.getDate(), birthDate.getHours(), birthDate.getMinutes(), 0);
-                
-                // Если в этом году 06:15 еще не наступило, берем прошлый год
-                if (now < lastBirthday) {
-                    years--;
-                    lastBirthday = new Date(now.getFullYear() - 1, birthDate.getMonth(), birthDate.getDate(), birthDate.getHours(), birthDate.getMinutes(), 0);
-                }
+<script>
+    // --- НАСТРОЙКИ АВТОМОБИЛЯ ---
+    const TANK_VOLUME = 45.0; // Объем бака
+    const FUEL_MAGIC_NUMBER = 0.335; // Коэффициент перевода MAF (г/с) в литры в час для бензина
 
-                // 2. Считаем точную разницу от этого момента
-                const diff = now - lastBirthday;
+    // --- ПЕРЕМЕННЫЕ СОСТОЯНИЯ ---
+    let port, reader, writer;
+    let isConnected = false;
+    let commandQueue = ['010D', '0110', '012F']; // Очередь PID: Скорость, MAF (для расхода), Топливо
+    let isPolling = false;
+    let buffer = '';
+    
+    // Данные машины
+    let currentSpeed = 0;
+    let currentMaf = 0;
+    let lastTime = Date.now();
+    let tripDistance = parseFloat(localStorage.getItem('tripDistance')) || 0.0;
 
-                const days = Math.floor(diff / (1000 * 60 * 60 * 24));
-                const hours = Math.floor((diff / (1000 * 60 * 60)) % 24);
-                const minutes = Math.floor((diff / (1000 * 60)) % 60);
-                const seconds = Math.floor((diff / 1000) % 60);
-                
-                document.getElementById('age-number').innerText = years;
-                document.getElementById('age-days').innerText = 
-                    `+ ${days}D ${hours}H ${minutes}M ${seconds}S`;
-            }
+    // UI Элементы
+    const els = {
+        status: document.getElementById('status'),
+        connectBtn: document.getElementById('connectBtn'),
+        fuel: document.getElementById('fuelVal'),
+        speed: document.getElementById('speedVal'),
+        cons: document.getElementById('consVal'),
+        consUnit: document.getElementById('consUnit'),
+        odo: document.getElementById('odoVal'),
+        trip: document.getElementById('tripVal'),
+        resetTrip: document.getElementById('resetTripBtn')
+    };
 
-            setInterval(update, 1000); 
-            update();
+    // Инициализация суточного пробега при загрузке
+    els.trip.innerText = tripDistance.toFixed(1);
+
+    // --- ЛОГИКА СУТОЧНОГО ПРОБЕГА ---
+    els.resetTrip.addEventListener('click', () => {
+        tripDistance = 0.0;
+        localStorage.setItem('tripDistance', tripDistance);
+        els.trip.innerText = '0.0';
+    });
+
+    function updateTripMeter(speedKmH, timeDiffMs) {
+        if (speedKmH > 0) {
+            let hours = timeDiffMs / 3600000.0; // Перевод мс в часы
+            tripDistance += (speedKmH * hours);
+            localStorage.setItem('tripDistance', tripDistance);
+            els.trip.innerText = tripDistance.toFixed(1);
         }
+    }
 
-        function resize() {
-            canvasBg.width = canvasDust.width = window.innerWidth;
-            canvasBg.height = canvasDust.height = window.innerHeight;
+    // ДОБАВЛЕНО: Объект serialAPI (Полифилл или Стандартный API для Android)
+    let serialAPI = navigator.serial;
+    if (typeof serial !== 'undefined' && navigator.usb) {
+        serialAPI = serial; // Используем полифилл, если он загрузился
+    }
+
+    // --- WEB SERIAL API ПОДКЛЮЧЕНИЕ ---
+    els.connectBtn.addEventListener('click', async () => {
+        // ДОБАВЛЕНО: к оригинальной проверке добавил проверку наличия serialAPI
+        if (!('serial' in navigator) && !serialAPI) {
+            els.status.innerText = "ОШИБКА: Web Serial API не поддерживается!";
+            return;
         }
-        window.addEventListener('resize', resize);
-        resize();
+        try {
+            // ДОБАВЛЕНО: Фильтры для FTDI чипа (0403:6001), чтобы Android Chrome увидел устройство
+            const filters = [
+                { usbVendorId: 0x0403, usbProductId: 0x6001 }
+            ];
 
-        class Particle {
-            constructor() { this.reset(); }
-            reset() {
-                this.x = Math.random() * canvasBg.width;
-                this.y = -50;
-                this.size = Math.random() * 15 + 10;
-                this.speed = Math.random() * 2 + 1;
-                this.text = Math.random() > 0.3 ? '❤️' : '✨';
-                this.opacity = Math.random() * 0.5 + 0.5;
+            // ДОБАВЛЕНО: Вызов через полифилл с фильтрами
+            if (serialAPI) {
+                port = await serialAPI.requestPort({ filters });
+            } else {
+                port = await navigator.serial.requestPort({ filters }); // Твоя оригинальная строка с фильтром
             }
-            update() {
-                this.y += this.speed;
-                if (this.y > canvasBg.height) this.reset();
-            }
-            draw() {
-                ctxBg.globalAlpha = this.opacity;
-                ctxBg.font = `${this.size}px serif`;
-                ctxBg.fillStyle = "#d4af37";
-                ctxBg.fillText(this.text, this.x, this.y);
-            }
-        }
 
-        class StarDust {
-            constructor(x, y) {
-                this.x = x;
-                this.y = y;
-                const angle = Math.random() * Math.PI * 2;
-                const force = Math.random() * 6 + 2;
-                this.dx = Math.cos(angle) * force;
-                this.dy = Math.sin(angle) * force;
-                this.size = Math.random() * 3 + 1;
-                this.life = 100;
-                this.decay = Math.random() * 1.5 + 0.8;
-                this.color = Math.random() > 0.5 ? '#d4af37' : '#fff';
-            }
-            update() {
-                this.x += this.dx;
-                this.y += this.dy;
-                this.dx *= 0.95;
-                this.dy *= 0.95;
-                this.life -= this.decay;
-            }
-            draw() {
-                if (this.life <= 0) return;
-                ctxDust.globalAlpha = this.life / 100;
-                ctxDust.fillStyle = this.color;
-                ctxDust.shadowBlur = 10;
-                ctxDust.shadowColor = this.color;
-                ctxDust.beginPath();
-                ctxDust.arc(this.x, this.y, this.size, 0, Math.PI * 2);
-                ctxDust.fill();
-                ctxDust.shadowBlur = 0;
-            }
-        }
+            await port.open({ baudRate: 38400 }); // Стандартный битрейт ELM327
 
-        function startSurprise(event) {
-            if (animationActive) return; 
-            animationActive = true;
+            writer = port.writable.getWriter();
+            isConnected = true;
+            els.status.innerText = "USB ПОДКЛЮЧЕН. ИНИЦИАЛИЗАЦИЯ...";
+            els.status.style.color = "var(--text-main)";
+            els.connectBtn.style.display = "none";
 
-            const music = document.getElementById('music');
-            const voice = document.getElementById('voice');
-            music.volume = 0.2; 
-            music.play();
+            // Запуск прослушивания порта
+            readLoop();
+
+            // Инициализация ELM327 (Сброс, отключение эха, авто-протокол)
+            await sendCommand('ATZ\r');
+            await new Promise(r => setTimeout(r, 1000));
+            await sendCommand('ATE0\r');
+            await new Promise(r => setTimeout(r, 500));
+            await sendCommand('ATSP0\r');
+            await new Promise(r => setTimeout(r, 1000));
+
+            // Добавляем запрос одометра в начало (выполняется реже)
+            commandQueue.push('0131'); 
             
-            setTimeout(() => { voice.volume = 1.0; voice.play(); }, 500);
+            els.status.innerText = "СВЯЗЬ УСТАНОВЛЕНА. СБОР ДАННЫХ...";
+            startPolling();
 
-            document.getElementById('title').innerText = "С ДНЕМ РОЖДЕНИЯ!";
-            document.getElementById('status').innerText = "Я тебя люблю!";
+        } catch (err) {
+            els.status.innerText = "ОШИБКА ПОДКЛЮЧЕНИЯ: " + err;
+        }
+    });
 
-            const rect = document.getElementById('mainHeart').getBoundingClientRect();
-            const centerX = rect.left + rect.width / 2;
-            const centerY = rect.top + rect.height / 2;
+    async function sendCommand(cmd) {
+        if (writer) {
+            const data = new TextEncoder().encode(cmd + '\r');
+            await writer.write(data);
+        }
+    }
 
-            for(let i = 0; i < 120; i++) {
-                dustParticles.push(new StarDust(centerX, centerY));
+    // --- ЧТЕНИЕ И ПАРСИНГ ОТВЕТОВ ---
+    async function readLoop() {
+        reader = port.readable.getReader();
+        const decoder = new TextDecoder();
+        try {
+            while (true) {
+                const { value, done } = await reader.read();
+                if (done) break;
+                
+                buffer += decoder.decode(value);
+                
+                // ELM327 завершает ответ символом '>'
+                if (buffer.includes('>')) {
+                    let response = buffer.replace('>', '').trim();
+                    buffer = ''; // Очищаем буфер
+                    processResponse(response);
+                    
+                    // Запрашиваем следующую команду из очереди
+                    setTimeout(pollNext, 100); 
+                }
             }
+        } catch (error) {
+            els.status.innerText = "ОБРЫВ СВЯЗИ";
+            els.status.style.color = "var(--text-warn)";
+        } finally {
+            reader.releaseLock();
+        }
+    }
 
-            voice.onended = function() {
-                let fadeOut = setInterval(() => {
-                    if (music.volume > 0.02) music.volume -= 0.02;
-                    else { music.pause(); clearInterval(fadeOut); }
-                }, 200);
-            };
+    // --- ЛОГИКА ОБРАБОТКИ PID ---
+    function processResponse(hexStr) {
+        // Убираем пробелы и мусор
+        hexStr = hexStr.replace(/\s+/g, '').toUpperCase();
+
+        // 41 0D = Ответ на Скорость
+        if (hexStr.includes('410D')) {
+            let hexVal = hexStr.substring(hexStr.indexOf('410D') + 4, hexStr.indexOf('410D') + 6);
+            currentSpeed = parseInt(hexVal, 16);
+            els.speed.innerText = currentSpeed;
+
+            // Обновляем суточный пробег
+            let now = Date.now();
+            updateTripMeter(currentSpeed, now - lastTime);
+            lastTime = now;
+        }
+
+        // 41 10 = Ответ на MAF (Расход воздуха)
+        if (hexStr.includes('4110')) {
+            let hexVal = hexStr.substring(hexStr.indexOf('4110') + 4, hexStr.indexOf('4110') + 8);
+            let A = parseInt(hexVal.substring(0, 2), 16);
+            let B = parseInt(hexVal.substring(2, 4), 16);
+            currentMaf = ((A * 256) + B) / 100; // грамм/сек
             
-            for(let i = 0; i < 40; i++) particles.push(new Particle());
-            animate();
+            // Расчет расхода
+            let litersPerHour = currentMaf * FUEL_MAGIC_NUMBER;
+            
+            if (currentSpeed === 0) {
+                // Холостой ход
+                els.cons.innerText = litersPerHour.toFixed(1);
+                els.consUnit.innerText = 'Л / Ч';
+            } else {
+                // В движении
+                let litersPer100 = (litersPerHour / currentSpeed) * 100;
+                // Ограничитель бредовых значений при трогании
+                if (litersPer100 > 99.9) litersPer100 = 99.9; 
+                els.cons.innerText = litersPer100.toFixed(1);
+                els.consUnit.innerText = 'Л / 100 КМ';
+            }
         }
 
-        function animate() {
-            ctxBg.clearRect(0, 0, canvasBg.width, canvasBg.height);
-            ctxDust.clearRect(0, 0, canvasDust.width, canvasDust.height);
-            particles.forEach(p => { p.update(); p.draw(); });
-            dustParticles.forEach((d, index) => {
-                d.update();
-                d.draw();
-                if (d.life <= 0) dustParticles.splice(index, 1);
-            });
-            requestAnimationFrame(animate);
+        // 41 2F = Ответ на Уровень топлива (стандарт)
+        // Для Форда может потребоваться 6216C1 (ответ на 2216C1), 
+        // но здесь реализован надежный OBD2 стандарт
+        if (hexStr.includes('412F')) {
+            let hexVal = hexStr.substring(hexStr.indexOf('412F') + 4, hexStr.indexOf('412F') + 6);
+            let percent = (parseInt(hexVal, 16) / 255);
+            let liters = TANK_VOLUME * percent;
+            els.fuel.innerText = liters.toFixed(1);
+            
+            // Подсветка красным, если меньше 7 литров
+            if (liters < 7.0) els.fuel.style.color = "var(--text-warn)";
+            else els.fuel.style.color = "var(--text-main)";
         }
-    </script>
+
+        // 41 31 = Расстояние после очистки ошибок (как альтернатива общему одометру, если ЭБУ не отдает 220544)
+        if (hexStr.includes('4131')) {
+            let hexVal = hexStr.substring(hexStr.indexOf('4131') + 4, hexStr.indexOf('4131') + 8);
+            let A = parseInt(hexVal.substring(0, 2), 16);
+            let B = parseInt(hexVal.substring(2, 4), 16);
+            let km = (A * 256) + B;
+            els.odo.innerText = km;
+        }
+    }
+
+    // --- ЦИКЛ ОПРОСА ---
+    let cmdIndex = 0;
+    function startPolling() {
+        if (!isPolling) {
+            isPolling = true;
+            lastTime = Date.now();
+            pollNext();
+        }
+    }
+
+    function pollNext() {
+        if (!isConnected) return;
+        
+        let cmd = commandQueue[cmdIndex];
+        sendCommand(cmd);
+        
+        cmdIndex++;
+        if (cmdIndex >= commandQueue.length) {
+            cmdIndex = 0;
+        }
+    }
+</script>
+
 </body>
 </html>
