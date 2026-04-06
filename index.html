@@ -3,84 +3,71 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>X-CONECT: FUEL ONLY</title>
+    <title>X-CONECT: MORNING START</title>
     <style>
-        :root { --bg: #000; --main: #0f0; --acc: #00bfff; }
-        body { background: var(--bg); color: var(--main); font-family: sans-serif; height: 100vh; display: flex; flex-direction: column; margin: 0; overflow: hidden; }
-        #connectBtn { width: 100%; padding: 30px; background: #111; color: var(--main); border: none; border-bottom: 2px solid #333; font-size: 22px; font-weight: bold; }
-        .fuel-box { flex: 2; display: flex; flex-direction: column; align-items: center; justify-content: center; border-bottom: 1px solid #222; }
-        .fuel-val { font-size: 30vw; font-weight: bold; color: #fff; }
-        .data-box { flex: 1; display: grid; grid-template-columns: 1fr 1fr; }
-        .card { border: 1px solid #222; display: flex; flex-direction: column; align-items: center; justify-content: center; }
-        .val { font-size: 12vw; font-weight: bold; color: #eee; }
-        .label { font-size: 14px; color: var(--acc); text-transform: uppercase; }
-        #status { font-size: 12px; color: #555; padding: 10px; text-align: center; background: #050505; }
+        body { background: #000; color: #0f0; font-family: monospace; margin: 0; overflow: hidden; height: 100vh; display: flex; flex-direction: column; }
+        #btn { width: 100%; padding: 30px; background: #111; color: #0f0; border: none; border-bottom: 2px solid #333; font-size: 20px; font-weight: bold; }
+        .main { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; position: relative; }
+        .val { font-size: 25vw; font-weight: bold; color: #fff; line-height: 1; }
+        .label { font-size: 14px; color: #00bfff; }
+        #status { height: 80px; background: #080808; font-size: 11px; color: #666; padding: 10px; overflow-y: auto; border-top: 1px solid #222; }
+        .active-link { background: rgba(0, 191, 255, 0.1); }
     </style>
 </head>
 <body>
 
-<button id="connectBtn">АКТИВИРОВАТЬ СВЯЗЬ</button>
+<button id="btn">ЗАПУСТИТЬ ПРИБОРКУ</button>
 
-<div class="fuel-box">
-    <div class="label">Остаток топлива</div>
-    <div id="fuel" class="fuel-val">--</div>
-    <div style="font-size: 20px; color: #555;">ЛИТРОВ</div>
+<div class="main" id="screen">
+    <div class="label">ОСТАТОК БЕНЗИНА</div>
+    <div id="fuel" class="val">--</div>
+    <div id="extra" style="color: #444; font-size: 12px;">Ожидание потока данных...</div>
 </div>
 
-<div class="data-box">
-    <div class="card">
-        <div class="label">Расход</div>
-        <div id="cons" class="val">0.0</div>
-        <div id="unit" style="font-size: 12px; color: #555;">Л/Ч</div>
-    </div>
-    <div class="card">
-        <div class="label">Скорость</div>
-        <div id="spd" class="val">0</div>
-        <div style="font-size: 12px; color: #555;">КМ/Ч</div>
-    </div>
-</div>
-
-<div id="status">Система готова. Подключи кабель и нажми кнопку.</div>
+<div id="status">LOG: Нажми кнопку после подключения кабеля</div>
 
 <script>
-    let dev, isWork = false, buffer = "", curSpd = 0;
-    const dbg = (m) => { document.getElementById('status').innerText = m; };
+    let dev, isWork = false, buffer = "";
+    const rates = [0x4138, 0x0000]; // 38400 и 9600
+    const log = (m) => { const s = document.getElementById('status'); s.innerText = m + "\n" + s.innerText; };
 
-    document.getElementById('connectBtn').onclick = async () => {
+    document.getElementById('btn').onclick = async () => {
         try {
-            dbg("Запрос устройства...");
             dev = await navigator.usb.requestDevice({ filters: [{ vendorId: 0x0403, productId: 0x6001 }] });
-            
             await dev.open();
-            if (dev.configuration === null) await dev.selectConfiguration(1);
+            await dev.selectConfiguration(1);
             await dev.claimInterface(0);
-
-            // Настройка чипа FTDI (38400)
-            await dev.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x03, value: 0x4138, index: 0 });
-
-            dbg("СВЯЗЬ УСТАНОВЛЕНА. Инициализация ЭБУ...");
-            document.getElementById('connectBtn').style.display = "none";
+            
+            document.getElementById('btn').style.display = "none";
             isWork = true;
             read();
 
-            // Команды для Ford Fusion (протокол ATSP3)
-            const init = ["ATZ", "ATE0", "ATH0", "ATSP3", "0100"];
-            for (let c of init) {
-                await send(c);
-                await new Promise(r => setTimeout(r, 600));
-            }
-
-            // Опрос: Бак (2F), Скорость (0D), MAF (10)
-            setInterval(() => {
-                if (isWork) {
-                    send("012F");
-                    setTimeout(() => send("010D"), 400);
-                    setTimeout(() => send("0110"), 800);
+            // Автоматический перебор
+            for (let rate of rates) {
+                log("Проверка скорости: " + (rate === 0x4138 ? "38400" : "9600"));
+                await dev.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x03, value: rate, index: 0 });
+                
+                await send("ATZ");
+                await new Promise(r => setTimeout(r, 1000));
+                
+                if (buffer.includes("ELM")) {
+                    log("СОЕДИНЕНИЕ УСТАНОВЛЕНО!");
+                    await initFord();
+                    return;
                 }
-            }, 1500);
-
-        } catch (e) { dbg("ОШИБКА: " + e.message); }
+            }
+            log("Машина не ответила. Проверь зажигание.");
+        } catch (e) { log("ОШИБКА: " + e.message); }
     };
+
+    async function initFord() {
+        const cmds = ["ATE0", "ATSP3", "0100"];
+        for (let c of cmds) {
+            await send(c);
+            await new Promise(r => setTimeout(r, 600));
+        }
+        setInterval(() => { if(isWork) send("012F"); }, 2000);
+    }
 
     async function send(c) {
         if (dev) await dev.transferOut(2, new TextEncoder().encode(c + "\r"));
@@ -92,43 +79,21 @@
             try {
                 const res = await dev.transferIn(1, 64);
                 if (res.data.byteLength > 2) {
-                    const actual = new Uint8Array(res.data.buffer, 2); // Отрезаем мусор FTDI
-                    buffer += dec.decode(actual);
-                    if (buffer.includes(">")) {
-                        parse(buffer.toUpperCase());
+                    const data = new Uint8Array(res.data.buffer, 2);
+                    let chunk = dec.decode(data).toUpperCase();
+                    buffer += chunk;
+                    if (chunk.includes(">")) {
+                        if (buffer.includes("412F")) {
+                            let v = parseInt(buffer.substring(buffer.indexOf("412F")+4, buffer.indexOf("412F")+6), 16);
+                            if(!isNaN(v)) {
+                                document.getElementById('fuel').innerText = ((v/255)*45).toFixed(1);
+                                document.getElementById('screen').classList.add('active-link');
+                            }
+                        }
                         buffer = "";
                     }
                 }
-            } catch (e) { isWork = false; break; }
-        }
-    }
-
-    function parse(s) {
-        const c = s.replace(/\s+/g, '');
-        // Бак
-        if (c.includes("412F")) {
-            const val = parseInt(c.substring(c.indexOf("412F")+4, c.indexOf("412F")+6), 16);
-            if(!isNaN(val)) document.getElementById('fuel').innerText = ((val/255)*45).toFixed(1);
-        }
-        // Скорость
-        if (c.includes("410D")) {
-            curSpd = parseInt(c.substring(c.indexOf("410D")+4, c.indexOf("410D")+6), 16);
-            if(!isNaN(curSpd)) document.getElementById('spd').innerText = curSpd;
-        }
-        // Расход (MAF)
-        if (c.includes("4110")) {
-            const i = c.indexOf("4110")+4;
-            const a = parseInt(c.substring(i, i+2), 16), b = parseInt(c.substring(i+2, i+4), 16);
-            if(!isNaN(a)) {
-                let lph = ( ((a*256)+b)/100 ) * 0.335;
-                if(curSpd > 5) {
-                    document.getElementById('cons').innerText = ((lph/curSpd)*100).toFixed(1);
-                    document.getElementById('unit').innerText = "Л/100КМ";
-                } else {
-                    document.getElementById('cons').innerText = lph.toFixed(1);
-                    document.getElementById('unit').innerText = "Л/Ч";
-                }
-            }
+            } catch (e) { break; }
         }
     }
 </script>
