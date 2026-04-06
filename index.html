@@ -106,7 +106,6 @@
 </div>
 
 <script>
-    // Настройки
     const TANK_VOLUME = 45.0;
     const FUEL_MAGIC_NUMBER = 0.335;
 
@@ -149,21 +148,28 @@
         }
     }
 
-    // ЛОГИКА ПОДКЛЮЧЕНИЯ ИЗ "ЛОГИКА USB"
+    // ОБЪЕДИНЕННАЯ ЛОГИКА ПОДКЛЮЧЕНИЯ
     els.connectBtn.addEventListener('click', async () => {
         els.status.innerText = "ЗАПРОС ДОСТУПА...";
         
         try {
-            // 1. Принудительный вызов системного окна через WebUSB
-            const usbDevice = await navigator.usb.requestDevice({ 
+            // 1. Активация через WebUSB (вызывает системное окно)
+            await navigator.usb.requestDevice({ 
                 filters: [{ vendorId: 0x0403, productId: 0x6001 }] 
             });
 
-            els.status.innerText = "ЧИП НАЙДЕН. ОТКРЫВАЮ ПОРТ...";
+            els.status.innerText = "ДОСТУП ЕСТЬ. ОТКРЫВАЮ ПОРТ...";
             
-            // 2. Инициализация через Serial Polyfill
+            // 2. Использование Serial Polyfill
             const serialManager = (typeof serial !== 'undefined') ? serial : navigator.serial;
-            port = await serialManager.requestPort({ filters: [{ usbVendorId: 0x0403, usbProductId: 0x6001 }] });
+
+            // Вместо повторного запроса окна, берем уже разрешенный порт
+            const ports = await serialManager.getPorts();
+            if (ports.length > 0) {
+                port = ports[0];
+            } else {
+                port = await serialManager.requestPort();
+            }
 
             await port.open({ baudRate: 38400 });
 
@@ -223,6 +229,7 @@
     function processResponse(hexStr) {
         hexStr = hexStr.replace(/\s+/g, '').toUpperCase();
         
+        // 010D - Скорость
         if (hexStr.includes('410D')) {
             let idx = hexStr.indexOf('410D') + 4;
             currentSpeed = parseInt(hexStr.substring(idx, idx + 2), 16);
@@ -232,6 +239,7 @@
             lastTime = now;
         }
         
+        // 0110 - MAF (Расход)
         if (hexStr.includes('4110')) {
             let idx = hexStr.indexOf('4110') + 4;
             let A = parseInt(hexStr.substring(idx, idx + 2), 16);
@@ -248,6 +256,7 @@
             }
         }
         
+        // 012F - Бак
         if (hexStr.includes('412F')) {
             let idx = hexStr.indexOf('412F') + 4;
             let level = (parseInt(hexStr.substring(idx, idx + 2), 16) / 255);
@@ -256,6 +265,7 @@
             els.fuel.style.color = (liters < 7) ? "var(--text-warn)" : "var(--text-main)";
         }
 
+        // 0131 - Пробег
         if (hexStr.includes('4131')) {
             let idx = hexStr.indexOf('4131') + 4;
             let A = parseInt(hexStr.substring(idx, idx + 2), 16);
