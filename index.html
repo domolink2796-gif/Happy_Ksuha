@@ -4,7 +4,6 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>X-CONECT: Digital Dashboard</title>
-    <!-- ДОБАВЛЕНО: Полифилл WebUSB для работы с OTG-переходниками на Android -->
     <script src="https://unpkg.com/web-serial-polyfill@1.0.15/dist/serial.js"></script>
     <style>
         :root {
@@ -35,7 +34,7 @@
             background-color: var(--text-dim);
             color: white;
             border: none;
-            padding: 10px 20px;
+            padding: 15px 25px; /* Увеличил для удобства нажатия на телефоне */
             font-size: 16px;
             font-weight: bold;
             border-radius: 5px;
@@ -59,24 +58,11 @@
             align-items: center;
             padding: 10px;
         }
-        .card-full {
-            grid-column: span 2;
-        }
-        .title {
-            font-size: 14px;
-            color: var(--text-accent);
-            text-transform: uppercase;
-        }
-        .value {
-            font-size: 10vw; /* Адаптивный размер для телефона */
-            font-weight: bold;
-            line-height: 1.1;
-        }
-        .unit {
-            font-size: 16px;
-            color: var(--text-dim);
-        }
-        #status { color: var(--text-warn); font-size: 12px; }
+        .card-full { grid-column: span 2; }
+        .title { font-size: 14px; color: var(--text-accent); text-transform: uppercase; }
+        .value { font-size: 10vw; font-weight: bold; line-height: 1.1; }
+        .unit { font-size: 16px; color: var(--text-dim); }
+        #status { color: var(--text-warn); font-size: 12px; max-width: 60%; }
     </style>
 </head>
 <body>
@@ -87,35 +73,30 @@
 </header>
 
 <div class="grid">
-    <!-- Топливо (Центр внимания) -->
     <div class="card card-full">
         <div class="title">Остаток в баке (45L MAX)</div>
         <div class="value" id="fuelVal">--</div>
         <div class="unit">ЛИТРОВ</div>
     </div>
 
-    <!-- Скорость -->
     <div class="card">
         <div class="title">Скорость</div>
         <div class="value" style="color: var(--text-main);" id="speedVal">0</div>
         <div class="unit">КМ/Ч</div>
     </div>
 
-    <!-- Расход (Автопереключение л/ч и л/100км) -->
     <div class="card">
         <div class="title">Расход</div>
         <div class="value" id="consVal">0.0</div>
         <div class="unit" id="consUnit">Л / Ч</div>
     </div>
 
-    <!-- Одометр -->
     <div class="card">
         <div class="title">Пробег (ЭБУ)</div>
         <div class="value" style="font-size: 6vw;" id="odoVal">------</div>
         <div class="unit">КМ</div>
     </div>
 
-    <!-- Суточный пробег -->
     <div class="card">
         <div class="title">Суточный пробег</div>
         <div class="value" style="font-size: 6vw;" id="tripVal">0.0</div>
@@ -125,24 +106,20 @@
 </div>
 
 <script>
-    // --- НАСТРОЙКИ АВТОМОБИЛЯ ---
-    const TANK_VOLUME = 45.0; // Объем бака
-    const FUEL_MAGIC_NUMBER = 0.335; // Коэффициент перевода MAF (г/с) в литры в час для бензина
+    const TANK_VOLUME = 45.0;
+    const FUEL_MAGIC_NUMBER = 0.335;
 
-    // --- ПЕРЕМЕННЫЕ СОСТОЯНИЯ ---
     let port, reader, writer;
     let isConnected = false;
-    let commandQueue = ['010D', '0110', '012F']; // Очередь PID: Скорость, MAF (для расхода), Топливо
-    let isPolling = false;
+    let commandQueue = ['010D', '0110', '012F'];
+    let cmdIndex = 0;
     let buffer = '';
     
-    // Данные машины
     let currentSpeed = 0;
     let currentMaf = 0;
     let lastTime = Date.now();
     let tripDistance = parseFloat(localStorage.getItem('tripDistance')) || 0.0;
 
-    // UI Элементы
     const els = {
         status: document.getElementById('status'),
         connectBtn: document.getElementById('connectBtn'),
@@ -155,10 +132,8 @@
         resetTrip: document.getElementById('resetTripBtn')
     };
 
-    // Инициализация суточного пробега при загрузке
     els.trip.innerText = tripDistance.toFixed(1);
 
-    // --- ЛОГИКА СУТОЧНОГО ПРОБЕГА ---
     els.resetTrip.addEventListener('click', () => {
         tripDistance = 0.0;
         localStorage.setItem('tripDistance', tripDistance);
@@ -167,40 +142,39 @@
 
     function updateTripMeter(speedKmH, timeDiffMs) {
         if (speedKmH > 0) {
-            let hours = timeDiffMs / 3600000.0; // Перевод мс в часы
+            let hours = timeDiffMs / 3600000.0;
             tripDistance += (speedKmH * hours);
-            localStorage.setItem('tripDistance', tripDistance);
+            localStorage.setItem('tripDistance', tripDistance.toString());
             els.trip.innerText = tripDistance.toFixed(1);
         }
     }
 
-    // ДОБАВЛЕНО: Объект serialAPI (Полифилл или Стандартный API для Android)
-    let serialAPI = navigator.serial;
-    if (typeof serial !== 'undefined' && navigator.usb) {
-        serialAPI = serial; // Используем полифилл, если он загрузился
+    // Инициализация Serial API через полифилл или нативно
+    async function getPort() {
+        if ('serial' in navigator) {
+            return await navigator.serial.requestPort();
+        } else if (window.serial) {
+            // Использование полифилла WebUSB
+            return await window.serial.requestPort();
+        } else {
+            throw new Error("Web Serial не поддерживается этим браузером.");
+        }
     }
 
-    // --- WEB SERIAL API ПОДКЛЮЧЕНИЕ ---
     els.connectBtn.addEventListener('click', async () => {
-        // ДОБАВЛЕНО: к оригинальной проверке добавил проверку наличия serialAPI
-        if (!('serial' in navigator) && !serialAPI) {
-            els.status.innerText = "ОШИБКА: Web Serial API не поддерживается!";
+        // Проверка защищенного контекста
+        if (window.isSecureContext === false) {
+            els.status.innerText = "ОШИБКА: НУЖЕН HTTPS (ИЛИ LOCALHOST)";
+            alert("USB на Android работает только через HTTPS. Загрузи файл на GitHub Pages или используй локальный сервер.");
             return;
         }
+
         try {
-            // ДОБАВЛЕНО: Фильтры для FTDI чипа (0403:6001), чтобы Android Chrome увидел устройство
-            const filters = [
-                { usbVendorId: 0x0403, usbProductId: 0x6001 }
-            ];
+            els.status.innerText = "ПОИСК УСТРОЙСТВ...";
+            // Передаем пустой фильтр, это часто «будит» диалоговое окно на Android
+            port = await getPort();
 
-            // ДОБАВЛЕНО: Вызов через полифилл с фильтрами
-            if (serialAPI) {
-                port = await serialAPI.requestPort({ filters });
-            } else {
-                port = await navigator.serial.requestPort({ filters }); // Твоя оригинальная строка с фильтром
-            }
-
-            await port.open({ baudRate: 38400 }); // Стандартный битрейт ELM327
+            await port.open({ baudRate: 38400 });
 
             writer = port.writable.getWriter();
             isConnected = true;
@@ -208,36 +182,35 @@
             els.status.style.color = "var(--text-main)";
             els.connectBtn.style.display = "none";
 
-            // Запуск прослушивания порта
             readLoop();
 
-            // Инициализация ELM327 (Сброс, отключение эха, авто-протокол)
-            await sendCommand('ATZ\r');
+            // Команды инициализации ELM327
+            await sendRawCommand('ATZ');
             await new Promise(r => setTimeout(r, 1000));
-            await sendCommand('ATE0\r');
+            await sendRawCommand('ATE0');
             await new Promise(r => setTimeout(r, 500));
-            await sendCommand('ATSP0\r');
+            await sendRawCommand('ATSP0');
             await new Promise(r => setTimeout(r, 1000));
 
-            // Добавляем запрос одометра в начало (выполняется реже)
             commandQueue.push('0131'); 
-            
             els.status.innerText = "СВЯЗЬ УСТАНОВЛЕНА. СБОР ДАННЫХ...";
-            startPolling();
+            
+            // Запуск цикла опроса
+            pollNext();
 
         } catch (err) {
-            els.status.innerText = "ОШИБКА ПОДКЛЮЧЕНИЯ: " + err;
+            console.error(err);
+            els.status.innerText = "ОШИБКА: " + err.message;
         }
     });
 
-    async function sendCommand(cmd) {
+    async function sendRawCommand(cmd) {
         if (writer) {
             const data = new TextEncoder().encode(cmd + '\r');
             await writer.write(data);
         }
     }
 
-    // --- ЧТЕНИЕ И ПАРСИНГ ОТВЕТОВ ---
     async function readLoop() {
         reader = port.readable.getReader();
         const decoder = new TextDecoder();
@@ -245,16 +218,11 @@
             while (true) {
                 const { value, done } = await reader.read();
                 if (done) break;
-                
                 buffer += decoder.decode(value);
-                
-                // ELM327 завершает ответ символом '>'
                 if (buffer.includes('>')) {
                     let response = buffer.replace('>', '').trim();
-                    buffer = ''; // Очищаем буфер
+                    buffer = '';
                     processResponse(response);
-                    
-                    // Запрашиваем следующую команду из очереди
                     setTimeout(pollNext, 100); 
                 }
             }
@@ -266,93 +234,56 @@
         }
     }
 
-    // --- ЛОГИКА ОБРАБОТКИ PID ---
     function processResponse(hexStr) {
-        // Убираем пробелы и мусор
         hexStr = hexStr.replace(/\s+/g, '').toUpperCase();
-
-        // 41 0D = Ответ на Скорость
         if (hexStr.includes('410D')) {
-            let hexVal = hexStr.substring(hexStr.indexOf('410D') + 4, hexStr.indexOf('410D') + 6);
+            let idx = hexStr.indexOf('410D') + 4;
+            let hexVal = hexStr.substring(idx, idx + 2);
             currentSpeed = parseInt(hexVal, 16);
             els.speed.innerText = currentSpeed;
-
-            // Обновляем суточный пробег
             let now = Date.now();
             updateTripMeter(currentSpeed, now - lastTime);
             lastTime = now;
         }
-
-        // 41 10 = Ответ на MAF (Расход воздуха)
         if (hexStr.includes('4110')) {
-            let hexVal = hexStr.substring(hexStr.indexOf('4110') + 4, hexStr.indexOf('4110') + 8);
+            let idx = hexStr.indexOf('4110') + 4;
+            let hexVal = hexStr.substring(idx, idx + 4);
             let A = parseInt(hexVal.substring(0, 2), 16);
             let B = parseInt(hexVal.substring(2, 4), 16);
-            currentMaf = ((A * 256) + B) / 100; // грамм/сек
-            
-            // Расчет расхода
+            currentMaf = ((A * 256) + B) / 100;
             let litersPerHour = currentMaf * FUEL_MAGIC_NUMBER;
-            
             if (currentSpeed === 0) {
-                // Холостой ход
                 els.cons.innerText = litersPerHour.toFixed(1);
                 els.consUnit.innerText = 'Л / Ч';
             } else {
-                // В движении
                 let litersPer100 = (litersPerHour / currentSpeed) * 100;
-                // Ограничитель бредовых значений при трогании
                 if (litersPer100 > 99.9) litersPer100 = 99.9; 
                 els.cons.innerText = litersPer100.toFixed(1);
                 els.consUnit.innerText = 'Л / 100 КМ';
             }
         }
-
-        // 41 2F = Ответ на Уровень топлива (стандарт)
-        // Для Форда может потребоваться 6216C1 (ответ на 2216C1), 
-        // но здесь реализован надежный OBD2 стандарт
         if (hexStr.includes('412F')) {
-            let hexVal = hexStr.substring(hexStr.indexOf('412F') + 4, hexStr.indexOf('412F') + 6);
+            let idx = hexStr.indexOf('412F') + 4;
+            let hexVal = hexStr.substring(idx, idx + 2);
             let percent = (parseInt(hexVal, 16) / 255);
             let liters = TANK_VOLUME * percent;
             els.fuel.innerText = liters.toFixed(1);
-            
-            // Подсветка красным, если меньше 7 литров
-            if (liters < 7.0) els.fuel.style.color = "var(--text-warn)";
-            else els.fuel.style.color = "var(--text-main)";
+            els.fuel.style.color = (liters < 7.0) ? "var(--text-warn)" : "var(--text-main)";
         }
-
-        // 41 31 = Расстояние после очистки ошибок (как альтернатива общему одометру, если ЭБУ не отдает 220544)
         if (hexStr.includes('4131')) {
-            let hexVal = hexStr.substring(hexStr.indexOf('4131') + 4, hexStr.indexOf('4131') + 8);
+            let idx = hexStr.indexOf('4131') + 4;
+            let hexVal = hexStr.substring(idx, idx + 4);
             let A = parseInt(hexVal.substring(0, 2), 16);
             let B = parseInt(hexVal.substring(2, 4), 16);
-            let km = (A * 256) + B;
-            els.odo.innerText = km;
-        }
-    }
-
-    // --- ЦИКЛ ОПРОСА ---
-    let cmdIndex = 0;
-    function startPolling() {
-        if (!isPolling) {
-            isPolling = true;
-            lastTime = Date.now();
-            pollNext();
+            els.odo.innerText = (A * 256) + B;
         }
     }
 
     function pollNext() {
         if (!isConnected) return;
-        
-        let cmd = commandQueue[cmdIndex];
-        sendCommand(cmd);
-        
-        cmdIndex++;
-        if (cmdIndex >= commandQueue.length) {
-            cmdIndex = 0;
-        }
+        sendRawCommand(commandQueue[cmdIndex]);
+        cmdIndex = (cmdIndex + 1) % commandQueue.length;
     }
 </script>
-
 </body>
 </html>
