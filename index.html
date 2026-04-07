@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>X-CONECT: Dashboard & Auto-Scanner</title>
+    <title>X-CONECT: Digital Dashboard & Scanner</title>
     <style>
         :root {
             --bg-color: #000000;
@@ -64,6 +64,7 @@
         .unit { font-size: 16px; color: var(--text-dim); }
         #status { color: var(--text-warn); font-size: 14px; font-weight: bold; }
         
+        /* Терминал обмена данными */
         #logContainer {
             flex-grow: 1;
             background-color: #0a0a0a;
@@ -86,7 +87,7 @@
         .log-sys { color: #2196f3; } 
         .log-tx { color: #ffeb3b; }  
         .log-rx { color: #4caf50; }  
-        .log-err { color: var(--text-warn); font-weight: bold; } 
+        .log-err { color: var(--text-warn); font-weight: bold; }
     </style>
 </head>
 <body>
@@ -117,19 +118,18 @@
 </div>
 
 <div id="logContainer">
-    <div class="log-title">--- МОНИТОРИНГ ПОДКЛЮЧЕНИЯ ---</div>
+    <div class="log-title">--- ТЕРМИНАЛ: ПОИСК СКОРОСТИ ---</div>
 </div>
 
 <script>
     const TANK_VOLUME = 45.0;
     const FUEL_MAGIC_NUMBER = 0.335;
 
-    // Параметры для перебора скоростей (Baudrates)
-    // 38400 (0x4138), 115200 (0x001A), 9600 (0x4138 - divisor)
+    // Параметры для перебора скоростей чипа FTDI
     const bauds = [
         { label: 38400, val: 0x4138 },
         { label: 115200, val: 0x001A },
-        { label: 9600, val: 0xC350 }
+        { label: 9600, val: 0xBF40 }
     ];
     let currentBaudIdx = 0;
     let scanTimer;
@@ -167,31 +167,37 @@
         if (els.logBox.childElementCount > 100) els.logBox.removeChild(els.logBox.children[1]);
     }
 
-    // Кнопка запускает цикл поиска
+    // Твоя рабочая логика вызова системного окна
     els.connectBtn.addEventListener('click', async () => {
-        currentBaudIdx = 0;
-        isInitialized = false;
-        await tryConnect();
+        try {
+            addLog("Запрос доступа к FTDI (0403:6001)...", "sys");
+            // Твои проверенные фильтры
+            device = await navigator.usb.requestDevice({ 
+                filters: [{ vendorId: 0x0403, productId: 0x6001 }] 
+            });
+
+            currentBaudIdx = 0;
+            isInitialized = false;
+            await startConnection();
+
+        } catch (err) {
+            addLog(`Ошибка выбора: ${err.message}`, "err");
+            els.status.innerText = "ОТМЕНЕНО";
+        }
     });
 
-    async function tryConnect() {
+    async function startConnection() {
         try {
             const baud = bauds[currentBaudIdx];
-            addLog(`>>> ПРОБА СКОРОСТИ: ${baud.label} bps...`, "sys");
+            addLog(`>>> ПРОБУЕМ СКОРОСТЬ: ${baud.label} bps...`, "sys");
             els.status.innerText = `ПОИСК: ${baud.label}`;
-
-            if (!device) {
-                device = await navigator.usb.requestDevice({ 
-                    filters: [{ vendorId: 0x0403, productId: 0x6001 }] 
-                });
-            }
 
             if (!device.opened) await device.open();
             
             if (device.configuration === null) await device.selectConfiguration(1);
             await device.claimInterface(0);
 
-            // Установка скорости на чипе FTDI
+            // Настройка FTDI под текущую скорость из списка
             await device.controlTransferOut({
                 requestType: 'vendor', recipient: 'device',
                 request: 0x03, value: baud.val, index: 0x0000 
@@ -203,29 +209,25 @@
             // Отправляем тестовую команду сброса
             await sendOBD("ATZ");
 
-            // Запускаем таймер ожидания ответа (2 секунды)
+            // Ждем ответа 2.5 секунды. Если нет - пробуем следующую скорость
             clearTimeout(scanTimer);
             scanTimer = setTimeout(async () => {
                 if (!isInitialized) {
-                    addLog(`[!] Нет ответа на ${baud.label}. Переключаюсь...`, "err");
-                    await nextBaud();
+                    addLog(`[-] Нет отклика на ${baud.label}.`, "err");
+                    isConnected = false;
+                    currentBaudIdx++;
+                    if (currentBaudIdx < bauds.length) {
+                        await startConnection();
+                    } else {
+                        addLog("!!! НИ ОДНА СКОРОСТЬ НЕ ПОДОШЛА.", "err");
+                        els.status.innerText = "НЕТ ОТВЕТА";
+                        currentBaudIdx = 0;
+                    }
                 }
-            }, 2000);
+            }, 2500);
 
         } catch (err) {
-            addLog(`Ошибка USB: ${err.message}`, "err");
-        }
-    }
-
-    async function nextBaud() {
-        isConnected = false;
-        currentBaudIdx++;
-        if (currentBaudIdx < bauds.length) {
-            await tryConnect();
-        } else {
-            addLog("!!! ВСЕ СКОРОСТИ ПРОВЕРЕНЫ. МАШИНА МОЛЧИТ.", "err");
-            els.status.innerText = "НЕТ СВЯЗИ";
-            currentBaudIdx = 0;
+            addLog(`Критическая ошибка: ${err.message}`, "err");
         }
     }
 
@@ -233,39 +235,39 @@
         if (!isConnected) return;
         addLog(`-> ${cmd}`, "tx");
         const data = new TextEncoder().encode(cmd + '\r');
-        await device.transferOut(2, data); 
+        await device.transferOut(2, data); // Твой Endpoint 2
     }
 
     async function startReading() {
         const decoder = new TextDecoder();
         while (isConnected) {
             try {
-                const result = await device.transferIn(1, 64); 
+                const result = await device.transferIn(1, 64); // Твой Endpoint 1
                 if (result.data.byteLength > 2) {
                     const actualData = new Uint8Array(result.data.buffer, 2);
                     const text = decoder.decode(actualData);
                     buffer += text;
 
                     if (buffer.includes('>')) {
-                        let cleanResponse = buffer.replace(/>/g, '').replace(/\r/g, ' ').trim();
-                        if (cleanResponse !== "") {
-                            addLog(`<- ${cleanResponse}`, "rx");
+                        let clean = buffer.replace(/>/g, '').replace(/\r/g, ' ').trim();
+                        if (clean !== "") {
+                            addLog(`<- ${clean}`, "rx");
                             
-                            // Если получили любой вменяемый ответ - скорость верна!
-                            if (!isInitialized && (cleanResponse.includes("OK") || cleanResponse.includes("ELM") || cleanResponse.includes("41"))) {
+                            // Если получили осмысленный ответ - значит скорость верна!
+                            if (!isInitialized && (clean.includes("OK") || clean.includes("ELM") || clean.includes("41"))) {
                                 isInitialized = true;
                                 clearTimeout(scanTimer);
-                                addLog(`УСПЕХ! СВЯЗЬ УСТАНОВЛЕНА.`, "sys");
+                                addLog(`УСПЕШНО: СКОРОСТЬ ${bauds[currentBaudIdx].label} ПОДТВЕРЖДЕНА!`, "sys");
                                 els.status.innerText = "СВЯЗЬ: OK";
                                 els.status.style.color = "var(--text-main)";
                                 els.connectBtn.style.display = "none";
                                 
-                                // Финальная настройка протокола для Ford
+                                // Инициализация протокола
                                 setTimeout(() => sendOBD("ATE0"), 500);
                                 setTimeout(() => sendOBD("ATSP3"), 1000); 
                                 setTimeout(pollCycle, 2000);
                             }
-                            processResponse(cleanResponse);
+                            processResponse(clean);
                         }
                         buffer = '';
                     }
@@ -281,16 +283,20 @@
         if (!isConnected || !isInitialized) return;
         sendOBD(commandQueue[cmdIndex]);
         cmdIndex = (cmdIndex + 1) % commandQueue.length;
-        setTimeout(pollCycle, 300); 
+        setTimeout(pollCycle, 400); 
     }
 
     function processResponse(hexStr) {
         hexStr = hexStr.replace(/\s+/g, '').toUpperCase();
+        
+        // Скорость
         if (hexStr.includes('410D')) {
             let idx = hexStr.indexOf('410D') + 4;
             currentSpeed = parseInt(hexStr.substring(idx, idx + 2), 16);
             if (!isNaN(currentSpeed)) els.speed.innerText = currentSpeed;
         }
+        
+        // Расход
         if (hexStr.includes('4110')) {
             let idx = hexStr.indexOf('4110') + 4;
             let maf = (parseInt(hexStr.substring(idx, idx + 4), 16)) / 100;
@@ -305,6 +311,8 @@
                 }
             }
         }
+
+        // Бак
         if (hexStr.includes('412F')) {
             let idx = hexStr.indexOf('412F') + 4;
             let level = parseInt(hexStr.substring(idx, idx + 2), 16);
