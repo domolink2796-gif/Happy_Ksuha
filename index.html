@@ -3,157 +3,113 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>X-CONECT: Digital Dashboard V4</title>
+    <title>X-CONECT: Digital Dashboard V5 (Sync Fix)</title>
     <style>
         :root {
-            --bg-color: #000000;
-            --text-main: #00ff00;
-            --text-accent: #00bfff;
-            --text-warn: #ff4500;
-            --text-dim: #555555;
+            --bg-color: #000; --text-main: #0f0; --text-accent: #0bf; --text-warn: #f40; --text-dim: #555;
         }
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body { 
-            background-color: var(--bg-color); 
-            color: var(--text-main); 
-            font-family: 'Courier New', Courier, monospace; 
-            display: flex; flex-direction: column; height: 100vh; overflow: hidden;
+            background-color: var(--bg-color); color: var(--text-main); 
+            font-family: 'Courier New', monospace; display: flex; flex-direction: column; height: 100vh;
         }
-        header {
-            display: flex; justify-content: space-between; align-items: center;
-            padding: 10px 20px; border-bottom: 2px solid var(--text-dim);
-        }
-        button {
-            background-color: #111; color: var(--text-main); border: 2px solid var(--text-main);
-            padding: 12px 20px; font-size: 16px; font-weight: bold; border-radius: 10px; cursor: pointer;
-        }
-        button:active { background-color: var(--text-main); color: black; }
+        header { display: flex; justify-content: space-between; align-items: center; padding: 10px; border-bottom: 2px solid var(--text-dim); }
+        button { background: #111; color: var(--text-main); border: 2px solid var(--text-main); padding: 12px; border-radius: 8px; font-weight: bold; }
         .grid { display: grid; grid-template-columns: 1fr 1fr; padding: 10px; gap: 8px; }
-        .card { border: 2px solid var(--text-dim); border-radius: 10px; display: flex; flex-direction: column; justify-content: center; align-items: center; padding: 8px; }
+        .card { border: 2px solid var(--text-dim); border-radius: 10px; padding: 10px; text-align: center; }
         .card-full { grid-column: span 2; }
-        .title { font-size: 12px; color: var(--text-accent); text-transform: uppercase; }
-        .value { font-size: 8vw; font-weight: bold; line-height: 1.1; }
-        #status { color: var(--text-warn); font-size: 12px; font-weight: bold; text-transform: uppercase; }
-        
-        #logContainer {
-            flex-grow: 1; background-color: #0a0a0a; border-top: 2px solid var(--text-dim);
-            padding: 10px; overflow-y: auto; font-size: 11px; display: flex; flex-direction: column;
-        }
-        .log-line { margin-bottom: 2px; border-bottom: 1px solid #111; padding-bottom: 2px; }
+        .value { font-size: 8vw; font-weight: bold; }
+        #logContainer { flex-grow: 1; background: #050505; overflow-y: auto; font-size: 10px; padding: 5px; border-top: 1px solid var(--text-dim); }
         .log-rx { color: #4caf50; } .log-tx { color: #ffeb3b; } .log-sys { color: #2196f3; }
     </style>
 </head>
 <body>
 
 <header>
-    <div id="status">USB: ОЖИДАНИЕ</div>
-    <button id="connectBtn">АКТИВИРОВАТЬ</button>
+    <div id="status" style="color: var(--text-warn)">ПОИСК СИНХРОНИЗАЦИИ...</div>
+    <button id="connectBtn">ПОДКЛЮЧИТЬ</button>
 </header>
 
 <div class="grid">
-    <div class="card card-full">
-        <div class="title">Топливо (45L MAX)</div>
-        <div class="value" id="fuelVal">--</div>
-    </div>
-    <div class="card">
-        <div class="title">Скорость</div>
-        <div class="value" id="speedVal">0</div>
-    </div>
-    <div class="card">
-        <div class="title">Расход</div>
-        <div class="value" id="consVal">0.0</div>
-    </div>
+    <div class="card card-full"><div class="value" id="fuelVal">--</div><div>ЛИТРОВ</div></div>
+    <div class="card"><div class="value" id="speedVal">0</div><div>КМ/Ч</div></div>
+    <div class="card"><div class="value" id="consVal">0.0</div><div>Л/Ч</div></div>
 </div>
 
-<div id="logContainer">
-    <div style="text-align: center; color: #444; font-size: 9px;">--- ТЕРМИНАЛ: АВТО-ПОИСК СИНХРОНИЗАЦИИ ---</div>
-</div>
+<div id="logContainer"></div>
 
 <script>
-    const TANK_VOLUME = 45.0;
-    
-    // Делители FT232R для WebUSB
+    // Стандартные делители для FT232R (3MHz base clock)
     const bauds = [
-        { label: 38400,  val: 0x4138, index: 0x0000 },
-        { label: 115200, val: 0x001A, index: 0x0000 },
-        { label: 9600,   val: 0x4138, index: 0x0001 }
+        { label: 38400,  val: 0x014E, index: 0x0000 }, // 3000000 / 38400 = 78.125
+        { label: 115200, val: 0x001A, index: 0x0000 }, // 3000000 / 115200 = 26
+        { label: 9600,   val: 0x4138, index: 0x0000 }
     ];
-    
-    let currentBaudIdx = 0;
-    let device, isConnected = false, isInitialized = false, buffer = '';
-    
-    const els = {
-        status: document.getElementById('status'),
-        connectBtn: document.getElementById('connectBtn'),
-        fuel: document.getElementById('fuelVal'),
-        speed: document.getElementById('speedVal'),
-        cons: document.getElementById('consVal'),
-        logBox: document.getElementById('logContainer')
-    };
+
+    let device, isConnected = false, isInitialized = false, buffer = '', currentBaudIdx = 0;
+    const logBox = document.getElementById('logContainer');
 
     function addLog(msg, type) {
-        const div = document.createElement('div');
-        div.className = `log-line log-${type}`;
-        div.innerText = `[${new Date().toLocaleTimeString()}] ${msg}`;
-        els.logBox.appendChild(div);
-        els.logBox.scrollTop = els.logBox.scrollHeight;
+        const d = document.createElement('div');
+        d.className = `log-${type}`;
+        d.innerText = `[${new Date().toLocaleTimeString()}] ${msg}`;
+        logBox.appendChild(d);
+        logBox.scrollTop = logBox.scrollHeight;
     }
 
-    els.connectBtn.addEventListener('click', async () => {
+    document.getElementById('connectBtn').addEventListener('click', async () => {
         try {
-            device = await navigator.usb.requestDevice({ 
-                filters: [{ vendorId: 0x0403, productId: 0x6001 }] 
-            });
-            currentBaudIdx = 0;
-            isInitialized = false;
-            await startScan();
-        } catch (err) { addLog(`Ошибка: ${err.message}`, "sys"); }
+            device = await navigator.usb.requestDevice({ filters: [{ vendorId: 0x0403, productId: 0x6001 }] });
+            await startAutoSync();
+        } catch (e) { addLog("Ошибка выбора: " + e.message, "sys"); }
     });
 
-    async function startScan() {
+    async function setupFTDI(baud) {
+        if (!device.opened) await device.open();
+        await device.selectConfiguration(1);
+        await device.claimInterface(0);
+
+        // 1. Сброс порта
+        await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x00, value: 0x0000, index: 0x00 });
+        // 2. Установка скорости
+        await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x03, value: baud.val, index: baud.index });
+        // 3. Установка Latency Timer (2ms) - ВАЖНО для быстрой реакции
+        await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x09, value: 0x0002, index: 0x00 });
+        
+        addLog(`FTDI настроен: ${baud.label} bps, Latency: 2ms`, "sys");
+    }
+
+    async function startAutoSync() {
+        const baud = bauds[currentBaudIdx];
+        document.getElementById('status').innerText = `ТЕСТ: ${baud.label}`;
+        
         try {
-            const b = bauds[currentBaudIdx];
-            addLog(`>>> ТЕСТ: ${b.label} bps...`, "sys");
-            els.status.innerText = `SCAN: ${b.label}`;
-
-            if (!device.opened) await device.open();
-            if (device.configuration === null) await device.selectConfiguration(1);
-            await device.claimInterface(0);
-
-            // Настройка FTDI
-            await device.controlTransferOut({
-                requestType: 'vendor', recipient: 'device',
-                request: 0x03, value: b.val, index: b.index 
-            });
-
+            await setupFTDI(baud);
             isConnected = true;
             readLoop();
-            
-            // "Прогрев" адаптера - шлем пустой Enter
-            await sendOBD(""); 
-            setTimeout(() => sendOBD("ATZ"), 800);
 
-            setTimeout(async () => {
+            // Шлем серию Enter, чтобы сбросить буфер адаптера
+            for(let i=0; i<3; i++) {
+                await sendOBD(""); 
+                await new Promise(r => setTimeout(r, 200));
+            }
+            await sendOBD("ATZ");
+
+            setTimeout(() => {
                 if (!isInitialized) {
-                    addLog(`[-] Нет синхронизации на ${b.label}`, "sys");
+                    addLog(`[-] Нет внятного ответа на ${baud.label}`, "sys");
                     isConnected = false;
-                    currentBaudIdx++;
-                    if (currentBaudIdx < bauds.length) await startScan();
-                    else {
-                        addLog("!!! АДАПТЕР НЕ СИНХРОНИЗИРОВАН.", "sys");
-                        els.status.innerText = "TIMEOUT";
-                        currentBaudIdx = 0;
-                    }
+                    currentBaudIdx = (currentBaudIdx + 1) % bauds.length;
+                    startAutoSync();
                 }
             }, 3000);
-        } catch (e) { addLog(`Сбой: ${e.message}`, "sys"); }
+        } catch (e) { addLog("Сбой: " + e.message, "sys"); }
     }
 
     async function sendOBD(cmd) {
         if (!isConnected) return;
         addLog(`-> ${cmd}`, "tx");
-        const data = new TextEncoder().encode(cmd + '\r');
-        try { await device.transferOut(2, data); } catch(e) {}
+        await device.transferOut(2, new TextEncoder().encode(cmd + '\r'));
     }
 
     async function readLoop() {
@@ -162,37 +118,34 @@
             try {
                 const result = await device.transferIn(1, 64);
                 if (result.data.byteLength > 2) {
-                    const actualData = new Uint8Array(result.data.buffer, 2);
-                    const text = decoder.decode(actualData);
-                    const hex = Array.from(actualData).map(b => b.toString(16).padStart(2,'0')).join(' ');
+                    const data = new Uint8Array(result.data.buffer, 2);
+                    const hex = Array.from(data).map(b => b.toString(16).padStart(2,'0')).join(' ');
+                    const text = decoder.decode(data);
                     
-                    if (text.trim().length > 0 || hex !== "") {
+                    if (text.trim() || hex !== "00 00") {
                         addLog(`<- ${text.replace(/\r/g, ' ')} [${hex}]`, "rx");
                         buffer += text;
 
-                        // Если в HEX есть признаки жизни, пробуем закрепиться
-                        if (!isInitialized && (buffer.includes('>') || buffer.includes('OK') || buffer.includes('ELM'))) {
+                        if (!isInitialized && (buffer.includes('>') || buffer.includes('ELM') || buffer.includes('OK'))) {
                             isInitialized = true;
-                            addLog(`УСПЕХ НА ${bauds[currentBaudIdx].label}!`, "sys");
-                            els.status.innerText = "ONLINE";
-                            els.status.style.color = "#0f0";
-                            els.connectBtn.style.display = "none";
-                            
+                            addLog("СИНХРОНИЗАЦИЯ ЕСТЬ!", "sys");
+                            document.getElementById('status').innerText = "ONLINE";
+                            document.getElementById('status').style.color = "#0f0";
                             setTimeout(() => sendOBD("ATE0"), 500);
-                            setTimeout(() => sendOBD("ATSP3"), 1000); 
-                            setTimeout(mainPoll, 2000);
+                            setTimeout(() => sendOBD("ATSP3"), 1000); // Протокол Ford Fusion
+                            setTimeout(poll, 2000);
                         }
                     }
-                    if (buffer.includes('>')) buffer = '';
                 }
-            } catch (err) { break; }
+            } catch (e) { break; }
         }
     }
 
-    function mainPoll() {
-        if (!isConnected || !isInitialized) return;
-        sendOBD("010D"); // Только скорость для теста стабильности
-        setTimeout(mainPoll, 1000); 
+    function poll() {
+        if (isConnected && isInitialized) {
+            sendOBD("010D"); // Скорость
+            setTimeout(poll, 800);
+        }
     }
 </script>
 </body>
