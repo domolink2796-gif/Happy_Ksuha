@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>X-CONECT: Digital Dashboard & Scanner V2</title>
+    <title>X-CONECT: Digital Dashboard V3</title>
     <style>
         :root {
             --bg-color: #000000;
@@ -105,27 +105,25 @@
 </div>
 
 <div id="logContainer">
-    <div style="text-align: center; color: #444; font-size: 9px; margin-bottom: 5px;">--- СИСТЕМНЫЙ ЛОГ ОБМЕНА ---</div>
+    <div style="text-align: center; color: #444; font-size: 9px; margin-bottom: 5px;">--- DEBUG: МОНИТОРИНГ FTDI ---</div>
 </div>
 
 <script>
     const TANK_VOLUME = 45.0;
-    const FUEL_MAGIC_NUMBER = 0.335;
-
-    // Скорректированные делители для FT232R
+    
+    // Расширенный список скоростей для FT232R
     const bauds = [
         { label: 38400,  val: 0x4138, index: 0x0000 },
         { label: 115200, val: 0x001A, index: 0x0000 },
-        { label: 9600,   val: 0x4138, index: 0x0001 } // Пример для 9600 на некоторых FTDI
+        { label: 500000, val: 0x0006, index: 0x0000 },
+        { label: 9600,   val: 0x4138, index: 0x0001 }
     ];
+    
     let currentBaudIdx = 0;
     let scanTimer;
-
     let device;
     let isConnected = false;
     let isInitialized = false;
-    let commandQueue = ['010D', '0110', '012F']; 
-    let cmdIndex = 0;
     let buffer = '';
     
     const els = {
@@ -134,24 +132,20 @@
         fuel: document.getElementById('fuelVal'),
         speed: document.getElementById('speedVal'),
         cons: document.getElementById('consVal'),
-        consUnit: document.getElementById('consUnit'),
         logBox: document.getElementById('logContainer')
     };
 
     function addLog(message, type) {
         const div = document.createElement('div');
         div.className = `log-line log-${type}`;
-        const d = new Date();
-        const timeStr = d.toTimeString().split(' ')[0];
-        div.innerText = `[${timeStr}] ${message}`;
+        div.innerText = `[${new Date().toLocaleTimeString()}] ${message}`;
         els.logBox.appendChild(div);
         els.logBox.scrollTop = els.logBox.scrollHeight;
-        if (els.logBox.childElementCount > 50) els.logBox.removeChild(els.logBox.children[1]);
+        if (els.logBox.childElementCount > 40) els.logBox.removeChild(els.logBox.children[1]);
     }
 
     els.connectBtn.addEventListener('click', async () => {
         try {
-            addLog("Поиск FTDI 0403:6001...", "sys");
             device = await navigator.usb.requestDevice({ 
                 filters: [{ vendorId: 0x0403, productId: 0x6001 }] 
             });
@@ -166,14 +160,14 @@
     async function startAutoScan() {
         try {
             const baud = bauds[currentBaudIdx];
-            addLog(`>>> СКАН: ${baud.label} bps...`, "sys");
+            addLog(`>>> ПОПЫТКА: ${baud.label} bps`, "sys");
             els.status.innerText = `SCAN: ${baud.label}`;
 
             if (!device.opened) await device.open();
             if (device.configuration === null) await device.selectConfiguration(1);
             await device.claimInterface(0);
 
-            // Применяем настройки скорости
+            // Настройка FTDI
             await device.controlTransferOut({
                 requestType: 'vendor', recipient: 'device',
                 request: 0x03, value: baud.val, index: baud.index 
@@ -182,30 +176,27 @@
             isConnected = true;
             readLoop();
             
-            // Ждем чуть дольше перед первой командой
-            setTimeout(async () => {
-                await sendOBD("ATZ");
-            }, 500);
+            // Ждем и кидаем сброс
+            setTimeout(async () => { await sendOBD("ATZ"); }, 600);
 
-            // Таймаут на ответ
             clearTimeout(scanTimer);
             scanTimer = setTimeout(async () => {
                 if (!isInitialized) {
-                    addLog(`[-] Тишина на ${baud.label}`, "err");
+                    addLog(`[-] Нет четкого ответа на ${baud.label}`, "err");
                     isConnected = false;
                     currentBaudIdx++;
                     if (currentBaudIdx < bauds.length) {
                         await startAutoScan();
                     } else {
-                        addLog("!!! АДАПТЕР НЕ ОТВЕЧАЕТ. Проверь питание OBD2!", "err");
-                        els.status.innerText = "NO RESPONSE";
+                        addLog("!!! ПРОВЕРЬ: 1. Зажигание. 2. Питание адаптера.", "err");
+                        els.status.innerText = "TIMEOUT";
                         currentBaudIdx = 0;
                     }
                 }
-            }, 3000);
+            }, 3500);
 
         } catch (err) {
-            addLog(`Сбой: ${err.message}`, "err");
+            addLog(`Сбой USB: ${err.message}`, "err");
         }
     }
 
@@ -213,9 +204,7 @@
         if (!isConnected) return;
         addLog(`-> ${cmd}`, "tx");
         const data = new TextEncoder().encode(cmd + '\r');
-        try {
-            await device.transferOut(2, data);
-        } catch(e) { isConnected = false; }
+        try { await device.transferOut(2, data); } catch(e) {}
     }
 
     async function readLoop() {
@@ -224,32 +213,33 @@
             try {
                 const result = await device.transferIn(1, 64);
                 if (result.data.byteLength > 2) {
-                    // Отрезаем 2 байта статуса FTDI
+                    // Чистим данные от статус-байтов FTDI
                     const actualData = new Uint8Array(result.data.buffer, 2);
                     const text = decoder.decode(actualData);
                     
-                    // Выводим даже частичные данные для диагностики
+                    // Если пришло хоть что-то, выводим в лог
                     if (text.trim().length > 0) {
-                        addLog(`<- ${text.replace(/\r/g, ' ')}`, "rx");
+                        const hex = Array.from(actualData).map(b => b.toString(16).padStart(2,'0')).join(' ');
+                        addLog(`<- ${text.replace(/\r/g, ' ')} [${hex}]`, "rx");
                         buffer += text;
                     }
 
+                    // Если увидели '>', 'OK' или даже 'ELM' — значит скорость наша!
+                    if (!isInitialized && (buffer.includes('>') || buffer.includes('OK') || buffer.includes('ELM'))) {
+                        isInitialized = true;
+                        clearTimeout(scanTimer);
+                        addLog(`УСПЕХ НА ${bauds[currentBaudIdx].label}!`, "sys");
+                        els.status.innerText = "ONLINE";
+                        els.status.style.color = "#0f0";
+                        els.connectBtn.style.display = "none";
+                        
+                        setTimeout(() => sendOBD("ATE0"), 500);
+                        setTimeout(() => sendOBD("ATSP3"), 1000); // Ford PWM/CAN
+                        setTimeout(mainPoll, 2000);
+                    }
+                    
                     if (buffer.includes('>')) {
-                        let clean = buffer.replace(/>/g, '').trim();
-                        if (!isInitialized && clean.length > 0) {
-                            isInitialized = true;
-                            clearTimeout(scanTimer);
-                            addLog("СВЯЗЬ ОК!", "sys");
-                            els.status.innerText = "ONLINE";
-                            els.status.style.color = "var(--text-main)";
-                            els.connectBtn.style.display = "none";
-                            
-                            // Настройка протокола
-                            setTimeout(() => sendOBD("ATE0"), 500);
-                            setTimeout(() => sendOBD("ATSP3"), 1000); // Протокол Ford
-                            setTimeout(mainPoll, 2000);
-                        }
-                        processResponse(clean);
+                        processResponse(buffer.replace(/>/g, '').trim());
                         buffer = '';
                     }
                 }
@@ -259,9 +249,9 @@
 
     function mainPoll() {
         if (!isConnected || !isInitialized) return;
-        sendOBD(commandQueue[cmdIndex]);
-        cmdIndex = (cmdIndex + 1) % commandQueue.length;
-        setTimeout(mainPoll, 500); 
+        const cmds = ['010D', '012F']; // Скорость и Бак
+        sendOBD(cmds[Math.floor(Math.random() * cmds.length)]); 
+        setTimeout(mainPoll, 600); 
     }
 
     function processResponse(hex) {
