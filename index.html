@@ -3,97 +3,316 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>X-CONECT: MORNING START</title>
+    <title>X-CONECT: Dashboard & Auto-Scanner</title>
     <style>
-        body { background: #000; color: #0f0; font-family: monospace; margin: 0; overflow: hidden; height: 100vh; display: flex; flex-direction: column; }
-        #btn { width: 100%; padding: 30px; background: #111; color: #0f0; border: none; border-bottom: 2px solid #333; font-size: 20px; font-weight: bold; }
-        .main { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; position: relative; }
-        .val { font-size: 25vw; font-weight: bold; color: #fff; line-height: 1; }
-        .label { font-size: 14px; color: #00bfff; }
-        #status { height: 80px; background: #080808; font-size: 11px; color: #666; padding: 10px; overflow-y: auto; border-top: 1px solid #222; }
-        .active-link { background: rgba(0, 191, 255, 0.1); }
+        :root {
+            --bg-color: #000000;
+            --text-main: #00ff00;
+            --text-accent: #00bfff;
+            --text-warn: #ff4500;
+            --text-dim: #555555;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { 
+            background-color: var(--bg-color); 
+            color: var(--text-main); 
+            font-family: 'Courier New', Courier, monospace; 
+            display: flex; 
+            flex-direction: column; 
+            height: 100vh; 
+            overflow: hidden;
+        }
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 20px;
+            border-bottom: 2px solid var(--text-dim);
+        }
+        button {
+            background-color: #111;
+            color: var(--text-main);
+            border: 2px solid var(--text-main);
+            padding: 15px 25px;
+            font-size: 18px;
+            font-weight: bold;
+            border-radius: 10px;
+            cursor: pointer;
+            box-shadow: 0 0 15px rgba(0, 255, 0, 0.2);
+        }
+        button:active { background-color: var(--text-main); color: black; }
+        .grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            grid-template-rows: auto auto auto;
+            flex-shrink: 0;
+            padding: 10px;
+            gap: 10px;
+        }
+        .card {
+            border: 2px solid var(--text-dim);
+            border-radius: 10px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            padding: 10px;
+        }
+        .card-full { grid-column: span 2; }
+        .title { font-size: 14px; color: var(--text-accent); text-transform: uppercase; text-align: center; }
+        .value { font-size: 10vw; font-weight: bold; line-height: 1.1; }
+        .unit { font-size: 16px; color: var(--text-dim); }
+        #status { color: var(--text-warn); font-size: 14px; font-weight: bold; }
+        
+        #logContainer {
+            flex-grow: 1;
+            background-color: #0a0a0a;
+            border-top: 2px solid var(--text-dim);
+            padding: 10px;
+            overflow-y: auto;
+            font-size: 12px;
+            display: flex;
+            flex-direction: column;
+        }
+        .log-title {
+            color: var(--text-dim);
+            font-size: 10px;
+            margin-bottom: 5px;
+            text-transform: uppercase;
+            text-align: center;
+            letter-spacing: 2px;
+        }
+        .log-line { margin-bottom: 3px; word-wrap: break-word; }
+        .log-sys { color: #2196f3; } 
+        .log-tx { color: #ffeb3b; }  
+        .log-rx { color: #4caf50; }  
+        .log-err { color: var(--text-warn); font-weight: bold; } 
     </style>
 </head>
 <body>
 
-<button id="btn">ЗАПУСТИТЬ ПРИБОРКУ</button>
+<header>
+    <div id="status">USB НЕ АКТИВИРОВАН</div>
+    <button id="connectBtn">АКТИВИРОВАТЬ</button>
+</header>
 
-<div class="main" id="screen">
-    <div class="label">ОСТАТОК БЕНЗИНА</div>
-    <div id="fuel" class="val">--</div>
-    <div id="extra" style="color: #444; font-size: 12px;">Ожидание потока данных...</div>
+<div class="grid">
+    <div class="card card-full">
+        <div class="title">Остаток в баке (45L MAX)</div>
+        <div class="value" id="fuelVal">--</div>
+        <div class="unit">ЛИТРОВ</div>
+    </div>
+
+    <div class="card">
+        <div class="title">Скорость</div>
+        <div class="value" style="color: var(--text-main);" id="speedVal">0</div>
+        <div class="unit">КМ/Ч</div>
+    </div>
+
+    <div class="card">
+        <div class="title">Расход</div>
+        <div class="value" id="consVal">0.0</div>
+        <div class="unit" id="consUnit">Л / Ч</div>
+    </div>
 </div>
 
-<div id="status">LOG: Нажми кнопку после подключения кабеля</div>
+<div id="logContainer">
+    <div class="log-title">--- МОНИТОРИНГ ПОДКЛЮЧЕНИЯ ---</div>
+</div>
 
 <script>
-    let dev, isWork = false, buffer = "";
-    const rates = [0x4138, 0x0000]; // 38400 и 9600
-    const log = (m) => { const s = document.getElementById('status'); s.innerText = m + "\n" + s.innerText; };
+    const TANK_VOLUME = 45.0;
+    const FUEL_MAGIC_NUMBER = 0.335;
 
-    document.getElementById('btn').onclick = async () => {
-        try {
-            dev = await navigator.usb.requestDevice({ filters: [{ vendorId: 0x0403, productId: 0x6001 }] });
-            await dev.open();
-            await dev.selectConfiguration(1);
-            await dev.claimInterface(0);
-            
-            document.getElementById('btn').style.display = "none";
-            isWork = true;
-            read();
+    // Параметры для перебора скоростей (Baudrates)
+    // 38400 (0x4138), 115200 (0x001A), 9600 (0x4138 - divisor)
+    const bauds = [
+        { label: 38400, val: 0x4138 },
+        { label: 115200, val: 0x001A },
+        { label: 9600, val: 0xC350 }
+    ];
+    let currentBaudIdx = 0;
+    let scanTimer;
 
-            // Автоматический перебор
-            for (let rate of rates) {
-                log("Проверка скорости: " + (rate === 0x4138 ? "38400" : "9600"));
-                await dev.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x03, value: rate, index: 0 });
-                
-                await send("ATZ");
-                await new Promise(r => setTimeout(r, 1000));
-                
-                if (buffer.includes("ELM")) {
-                    log("СОЕДИНЕНИЕ УСТАНОВЛЕНО!");
-                    await initFord();
-                    return;
-                }
-            }
-            log("Машина не ответила. Проверь зажигание.");
-        } catch (e) { log("ОШИБКА: " + e.message); }
+    let device;
+    let isConnected = false;
+    let isInitialized = false;
+    let commandQueue = ['010D', '0110', '012F', '0131']; 
+    let cmdIndex = 0;
+    let buffer = '';
+    
+    let currentSpeed = 0;
+    let lastTime = Date.now();
+    let tripDistance = parseFloat(localStorage.getItem('tripDistance')) || 0.0;
+
+    const els = {
+        status: document.getElementById('status'),
+        connectBtn: document.getElementById('connectBtn'),
+        fuel: document.getElementById('fuelVal'),
+        speed: document.getElementById('speedVal'),
+        cons: document.getElementById('consVal'),
+        consUnit: document.getElementById('consUnit'),
+        logBox: document.getElementById('logContainer')
     };
 
-    async function initFord() {
-        const cmds = ["ATE0", "ATSP3", "0100"];
-        for (let c of cmds) {
-            await send(c);
-            await new Promise(r => setTimeout(r, 600));
+    function addLog(message, type) {
+        const div = document.createElement('div');
+        div.className = `log-line log-${type}`;
+        const d = new Date();
+        const timeStr = [d.getHours(), d.getMinutes(), d.getSeconds()]
+            .map(x => x.toString().padStart(2, '0')).join(':');
+        div.innerText = `[${timeStr}] ${message}`;
+        els.logBox.appendChild(div);
+        els.logBox.scrollTop = els.logBox.scrollHeight;
+        if (els.logBox.childElementCount > 100) els.logBox.removeChild(els.logBox.children[1]);
+    }
+
+    // Кнопка запускает цикл поиска
+    els.connectBtn.addEventListener('click', async () => {
+        currentBaudIdx = 0;
+        isInitialized = false;
+        await tryConnect();
+    });
+
+    async function tryConnect() {
+        try {
+            const baud = bauds[currentBaudIdx];
+            addLog(`>>> ПРОБА СКОРОСТИ: ${baud.label} bps...`, "sys");
+            els.status.innerText = `ПОИСК: ${baud.label}`;
+
+            if (!device) {
+                device = await navigator.usb.requestDevice({ 
+                    filters: [{ vendorId: 0x0403, productId: 0x6001 }] 
+                });
+            }
+
+            if (!device.opened) await device.open();
+            
+            if (device.configuration === null) await device.selectConfiguration(1);
+            await device.claimInterface(0);
+
+            // Установка скорости на чипе FTDI
+            await device.controlTransferOut({
+                requestType: 'vendor', recipient: 'device',
+                request: 0x03, value: baud.val, index: 0x0000 
+            });
+
+            isConnected = true;
+            startReading();
+            
+            // Отправляем тестовую команду сброса
+            await sendOBD("ATZ");
+
+            // Запускаем таймер ожидания ответа (2 секунды)
+            clearTimeout(scanTimer);
+            scanTimer = setTimeout(async () => {
+                if (!isInitialized) {
+                    addLog(`[!] Нет ответа на ${baud.label}. Переключаюсь...`, "err");
+                    await nextBaud();
+                }
+            }, 2000);
+
+        } catch (err) {
+            addLog(`Ошибка USB: ${err.message}`, "err");
         }
-        setInterval(() => { if(isWork) send("012F"); }, 2000);
     }
 
-    async function send(c) {
-        if (dev) await dev.transferOut(2, new TextEncoder().encode(c + "\r"));
+    async function nextBaud() {
+        isConnected = false;
+        currentBaudIdx++;
+        if (currentBaudIdx < bauds.length) {
+            await tryConnect();
+        } else {
+            addLog("!!! ВСЕ СКОРОСТИ ПРОВЕРЕНЫ. МАШИНА МОЛЧИТ.", "err");
+            els.status.innerText = "НЕТ СВЯЗИ";
+            currentBaudIdx = 0;
+        }
     }
 
-    async function read() {
-        const dec = new TextDecoder();
-        while (isWork) {
+    async function sendOBD(cmd) {
+        if (!isConnected) return;
+        addLog(`-> ${cmd}`, "tx");
+        const data = new TextEncoder().encode(cmd + '\r');
+        await device.transferOut(2, data); 
+    }
+
+    async function startReading() {
+        const decoder = new TextDecoder();
+        while (isConnected) {
             try {
-                const res = await dev.transferIn(1, 64);
-                if (res.data.byteLength > 2) {
-                    const data = new Uint8Array(res.data.buffer, 2);
-                    let chunk = dec.decode(data).toUpperCase();
-                    buffer += chunk;
-                    if (chunk.includes(">")) {
-                        if (buffer.includes("412F")) {
-                            let v = parseInt(buffer.substring(buffer.indexOf("412F")+4, buffer.indexOf("412F")+6), 16);
-                            if(!isNaN(v)) {
-                                document.getElementById('fuel').innerText = ((v/255)*45).toFixed(1);
-                                document.getElementById('screen').classList.add('active-link');
+                const result = await device.transferIn(1, 64); 
+                if (result.data.byteLength > 2) {
+                    const actualData = new Uint8Array(result.data.buffer, 2);
+                    const text = decoder.decode(actualData);
+                    buffer += text;
+
+                    if (buffer.includes('>')) {
+                        let cleanResponse = buffer.replace(/>/g, '').replace(/\r/g, ' ').trim();
+                        if (cleanResponse !== "") {
+                            addLog(`<- ${cleanResponse}`, "rx");
+                            
+                            // Если получили любой вменяемый ответ - скорость верна!
+                            if (!isInitialized && (cleanResponse.includes("OK") || cleanResponse.includes("ELM") || cleanResponse.includes("41"))) {
+                                isInitialized = true;
+                                clearTimeout(scanTimer);
+                                addLog(`УСПЕХ! СВЯЗЬ УСТАНОВЛЕНА.`, "sys");
+                                els.status.innerText = "СВЯЗЬ: OK";
+                                els.status.style.color = "var(--text-main)";
+                                els.connectBtn.style.display = "none";
+                                
+                                // Финальная настройка протокола для Ford
+                                setTimeout(() => sendOBD("ATE0"), 500);
+                                setTimeout(() => sendOBD("ATSP3"), 1000); 
+                                setTimeout(pollCycle, 2000);
                             }
+                            processResponse(cleanResponse);
                         }
-                        buffer = "";
+                        buffer = '';
                     }
                 }
-            } catch (e) { break; }
+            } catch (err) {
+                isConnected = false;
+                break;
+            }
+        }
+    }
+
+    function pollCycle() {
+        if (!isConnected || !isInitialized) return;
+        sendOBD(commandQueue[cmdIndex]);
+        cmdIndex = (cmdIndex + 1) % commandQueue.length;
+        setTimeout(pollCycle, 300); 
+    }
+
+    function processResponse(hexStr) {
+        hexStr = hexStr.replace(/\s+/g, '').toUpperCase();
+        if (hexStr.includes('410D')) {
+            let idx = hexStr.indexOf('410D') + 4;
+            currentSpeed = parseInt(hexStr.substring(idx, idx + 2), 16);
+            if (!isNaN(currentSpeed)) els.speed.innerText = currentSpeed;
+        }
+        if (hexStr.includes('4110')) {
+            let idx = hexStr.indexOf('4110') + 4;
+            let maf = (parseInt(hexStr.substring(idx, idx + 4), 16)) / 100;
+            if (!isNaN(maf)) {
+                let lph = maf * FUEL_MAGIC_NUMBER;
+                if (currentSpeed > 5) {
+                    els.cons.innerText = ((lph / currentSpeed) * 100).toFixed(1);
+                    els.consUnit.innerText = "Л/100КМ";
+                } else {
+                    els.cons.innerText = lph.toFixed(1);
+                    els.consUnit.innerText = "Л/Ч";
+                }
+            }
+        }
+        if (hexStr.includes('412F')) {
+            let idx = hexStr.indexOf('412F') + 4;
+            let level = parseInt(hexStr.substring(idx, idx + 2), 16);
+            if (!isNaN(level)) {
+                let liters = TANK_VOLUME * (level / 255);
+                els.fuel.innerText = liters.toFixed(1);
+                els.fuel.style.color = (liters < 7) ? "var(--text-warn)" : "var(--text-main)";
+            }
         }
     }
 </script>
