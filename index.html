@@ -3,39 +3,38 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>X-CONECT V8: DEEP RECOVERY</title>
+    <title>X-CONECT V9: FORD STABLE</title>
     <style>
-        :root { --bg: #000; --main: #0f0; --acc: #0bf; --warn: #f40; --dim: #333; }
+        :root { --bg: #000; --main: #0f0; --acc: #0bf; --warn: #f40; --dim: #222; }
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body { background: var(--bg); color: var(--main); font-family: 'Courier New', monospace; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
         header { display: flex; justify-content: space-between; align-items: center; padding: 15px; border-bottom: 2px solid var(--dim); }
-        button { background: #111; color: var(--main); border: 2px solid var(--main); padding: 15px; border-radius: 12px; font-weight: bold; }
-        .grid { display: grid; grid-template-columns: 1fr 1fr; padding: 10px; gap: 10px; }
+        button { background: #111; color: var(--main); border: 2px solid var(--main); padding: 15px 25px; border-radius: 12px; font-weight: bold; }
+        .grid { display: grid; grid-template-columns: 1fr 1fr; padding: 10px; gap: 10px; flex-shrink: 0; }
         .card { border: 2px solid var(--dim); border-radius: 12px; padding: 15px; text-align: center; }
         .card-full { grid-column: span 2; }
-        .val { font-size: 10vw; font-weight: bold; line-height: 1; }
-        .unit { font-size: 12px; color: var(--acc); margin-top: 5px; }
-        #log { flex-grow: 1; background: #050505; overflow-y: auto; font-size: 11px; padding: 8px; border-top: 1px solid var(--dim); color: #888; }
-        .tx { color: #ff0; } .rx { color: #0f0; } .sys { color: #2196f3; }
+        .val { font-size: 14vw; font-weight: bold; line-height: 1; }
+        .unit { font-size: 14px; color: var(--acc); margin-top: 5px; }
+        #log { flex-grow: 1; background: #050505; overflow-y: auto; font-size: 11px; padding: 8px; border-top: 1px solid var(--dim); color: #666; }
+        .tx { color: #ff0; } .rx { color: #0f0; font-weight: bold; } .sys { color: #2196f3; }
     </style>
 </head>
 <body>
 
 <header>
-    <div id="status" style="color: var(--warn)">СИСТЕМА ГОТОВА</div>
+    <div id="status" style="color: var(--warn)">СИСТЕМА: ГОТОВА</div>
     <button id="connectBtn">АКТИВИРОВАТЬ</button>
 </header>
 
 <div class="grid">
-    <div class="card card-full"><div class="val" id="fuelVal">--</div><div class="unit">ОСТАТОК БАКА (Л)</div></div>
-    <div class="card"><div class="val" id="speedVal">0</div><div class="unit">СКОРОСТЬ КМ/Ч</div></div>
-    <div class="card"><div class="val" id="consVal">0.0</div><div class="unit" id="consUnit">Л / Ч</div></div>
+    <div class="card card-full"><div class="val" id="fuelVal">--</div><div class="unit">ТОПЛИВО (Л)</div></div>
+    <div class="card"><div class="val" id="speedVal">0</div><div class="unit">КМ/Ч</div></div>
+    <div class="card"><div class="val" id="consVal">0.0</div><div class="unit">Л/Ч</div></div>
 </div>
 
 <div id="log"></div>
 
 <script>
-    // Настройки из твоего рабочего файла
     const TANK_VOLUME = 45.0;
     const FUEL_MAGIC = 0.335;
     
@@ -59,33 +58,24 @@
             if (device.configuration === null) await device.selectConfiguration(1);
             await device.claimInterface(0);
 
-            // Тот самый магический код 0x4138 (9600 bps)
+            // Твоя рабочая настройка 9600 из файла
             await device.controlTransferOut({
                 requestType: 'vendor', recipient: 'device',
                 request: 0x03, value: 0x4138, index: 0x0000 
             });
 
-            addLog(">>> FTDI НАСТРОЕН (9600 + 0x4138)", "sys");
+            addLog(">>> ПОДКЛЮЧЕНО (FTDI 9600 OK)", "sys");
             document.getElementById('status').innerText = "ПОИСК ELM...";
             isConnected = true;
             
-            startReading();
+            readLoop();
             
-            // Инициализация ELM
-            await sendOBD("ATZ");
-            setTimeout(() => sendOBD("ATE0"), 1000);
-            setTimeout(() => sendOBD("ATSP0"), 1500);
-            setTimeout(() => {
-                if (!isReady) {
-                    isReady = true; // Принудительно запускаем опрос, если нет ответа на ATZ
-                    addLog("--- ЗАПУСК ОПРОСА ПО ТАЙМЕРУ ---", "sys");
-                    document.getElementById('status').innerText = "ONLINE";
-                    document.getElementById('status').style.color = "#0f0";
-                    pollCycle();
-                }
-            }, 3000);
+            // "Прогрев" ELM (задержки увеличены для стабильности на 9600)
+            setTimeout(() => sendOBD("ATZ"), 500);
+            setTimeout(() => sendOBD("ATE0"), 1500);
+            setTimeout(() => sendOBD("ATSP0"), 2500); 
 
-        } catch (e) { addLog("Ошибка: " + e.message, "sys"); }
+        } catch (e) { addLog("Ошибка доступа: " + e.message, "sys"); }
     });
 
     async function sendOBD(cmd) {
@@ -94,53 +84,65 @@
         await device.transferOut(2, new TextEncoder().encode(cmd + '\r'));
     }
 
-    async function startReading() {
+    async function readLoop() {
         const dec = new TextDecoder();
         while (isConnected) {
             try {
-                const result = await device.transferIn(1, 64);
-                const text = dec.decode(result.data);
-                
-                if (text.trim()) {
-                    addLog(`<- ${text.replace(/\r/g, ' ')}`, "rx");
-                    buffer += text;
+                const res = await device.transferIn(1, 64);
+                if (res.data.byteLength > 2) {
+                    // КЛЮЧЕВОЙ МОМЕНТ: Отрезаем первые 2 байта статуса FTDI
+                    const cleanData = new Uint8Array(res.data.buffer, 2);
+                    const text = dec.decode(cleanData);
+                    
+                    // Если в ответе есть хоть что-то кроме мусора
+                    if (text.trim()) {
+                        addLog(`<- ${text.replace(/\r/g, ' ')}`, "rx");
+                        buffer += text;
 
-                    if (buffer.includes('>')) {
-                        processResponse(buffer.replace('>', '').trim());
-                        buffer = '';
-                        isReady = true;
-                        document.getElementById('status').innerText = "ONLINE";
-                        document.getElementById('status').style.color = "#0f0";
+                        if (buffer.includes('>')) {
+                            const cleanResp = buffer.replace(/>/g, '').trim();
+                            if (cleanResp) parseOBD(cleanResp);
+                            buffer = '';
+                            
+                            if (!isReady) {
+                                isReady = true;
+                                addLog("=== ELM ОТВЕТИЛ (СВЯЗЬ ЕСТЬ) ===", "sys");
+                                document.getElementById('status').innerText = "ONLINE";
+                                document.getElementById('status').style.color = "#0f0";
+                                document.getElementById('connectBtn').style.display = "none";
+                                poll();
+                            }
+                        }
                     }
                 }
             } catch (e) { isConnected = false; break; }
         }
     }
 
-    function pollCycle() {
-        if (!isConnected) return;
-        sendOBD(commandQueue[cmdIdx]);
-        cmdIdx = (cmdIdx + 1) % commandQueue.length;
-        setTimeout(pollCycle, 800); // 800мс для стабильности на 9600
+    function poll() {
+        if (isConnected && isReady) {
+            sendOBD(commandQueue[cmdIdx]);
+            cmdIdx = (cmdIdx + 1) % commandQueue.length;
+            setTimeout(poll, 1000); // 1 сек - комфортно для 9600 и твоего Fusion [cite: 2026-01-20]
+        }
     }
 
-    function processResponse(hex) {
+    function parseOBD(hex) {
         hex = hex.replace(/\s+/g, '').toUpperCase();
-        
         // Скорость
         if (hex.includes('410D')) {
             let val = parseInt(hex.substr(hex.indexOf('410D')+4, 2), 16);
-            document.getElementById('speedVal').innerText = isNaN(val) ? 0 : val;
+            if (!isNaN(val)) document.getElementById('speedVal').innerText = val;
         }
         // Бак
         if (hex.includes('412F')) {
             let val = parseInt(hex.substr(hex.indexOf('412F')+4, 2), 16) / 255 * TANK_VOLUME;
-            document.getElementById('fuelVal').innerText = val.toFixed(1);
+            if (!isNaN(val)) document.getElementById('fuelVal').innerText = val.toFixed(1);
         }
-        // MAF -> Расход
+        // Расход
         if (hex.includes('4110')) {
-            let val = parseInt(hex.substr(hex.indexOf('4110')+4, 4), 16) / 100 * FUEL_MAGIC;
-            document.getElementById('consVal').innerText = val.toFixed(1);
+            let val = (parseInt(hex.substr(hex.indexOf('4110')+4, 4), 16) / 100) * FUEL_MAGIC;
+            if (!isNaN(val)) document.getElementById('consVal').innerText = val.toFixed(1);
         }
     }
 </script>
