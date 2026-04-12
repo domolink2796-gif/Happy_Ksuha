@@ -2,149 +2,1427 @@
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>X-CONECT V9: FORD STABLE</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    <script src="https://unpkg.com/html5-qrcode"></script>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="theme-color" content="#0b0b0b">
+    
+    <title>X-CONECT</title>
+    <link rel="manifest" href="manifest.json">
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
     <style>
-        :root { --bg: #000; --main: #0f0; --acc: #0bf; --warn: #f40; --dim: #222; }
-        * { box-sizing: border-box; margin: 0; padding: 0; }
-        body { background: var(--bg); color: var(--main); font-family: 'Courier New', monospace; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
-        header { display: flex; justify-content: space-between; align-items: center; padding: 15px; border-bottom: 2px solid var(--dim); }
-        button { background: #111; color: var(--main); border: 2px solid var(--main); padding: 15px 25px; border-radius: 12px; font-weight: bold; }
-        .grid { display: grid; grid-template-columns: 1fr 1fr; padding: 10px; gap: 10px; flex-shrink: 0; }
-        .card { border: 2px solid var(--dim); border-radius: 12px; padding: 15px; text-align: center; }
-        .card-full { grid-column: span 2; }
-        .val { font-size: 14vw; font-weight: bold; line-height: 1; }
-        .unit { font-size: 14px; color: var(--acc); margin-top: 5px; }
-        #log { flex-grow: 1; background: #050505; overflow-y: auto; font-size: 11px; padding: 8px; border-top: 1px solid var(--dim); color: #666; }
-        .tx { color: #ff0; } .rx { color: #0f0; font-weight: bold; } .sys { color: #2196f3; }
+        :root { 
+            --gold: #ff6600; 
+            --dark: #0b0b0b; 
+            --read-color: #4ea4f6;
+            --card-bg: #1a1a1a; 
+            --panel-bg: #111111;
+            --msg-mine: rgba(255, 102, 0, 0.25);
+            --msg-theirs: #222222;
+        }
+        
+        * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; outline: none; }
+        
+        html, body { 
+            height: 100%; margin: 0; padding: 0; 
+            background: var(--dark); 
+            overflow: hidden; position: fixed; width: 100%; 
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            color: #fff; user-select: none;
+        }
+        
+        body { display: flex; flex-direction: column; background: radial-gradient(circle at top right, #1a1a1a, #0b0b0b); }
+
+        /* === КРАСИВЫЕ МОДАЛЬНЫЕ ОКНА (X-MODAL) === */
+        #xModalOverlay {
+            position: fixed; inset: 0; background: rgba(0,0,0,0.85); 
+            backdrop-filter: blur(10px); z-index: 10000; 
+            display: none; align-items: center; justify-content: center; 
+            animation: fadeIn 0.3s ease;
+        }
+        .x-modal {
+            width: 320px; background: #161616; border: 2px solid var(--gold); 
+            border-radius: 25px; padding: 30px; text-align: center; 
+            box-shadow: 0 0 50px rgba(255, 102, 0, 0.2);
+            transform: scale(0.9); transition: 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+        .x-modal.show { transform: scale(1); }
+        .x-modal-title { color: var(--gold); font-size: 18px; font-weight: 900; margin-bottom: 15px; letter-spacing: 2px; text-transform: uppercase; }
+        .x-modal-text { color: #ccc; font-size: 14px; line-height: 1.6; margin-bottom: 25px; }
+        .x-modal-input { 
+            width: 100%; background: #000; border: 1px solid #444; border-radius: 12px; 
+            padding: 14px; color: #fff; text-align: center; margin-bottom: 20px; font-size: 16px;
+        }
+        .x-modal-btns { display: flex; gap: 12px; justify-content: center; }
+        .x-btn { padding: 12px 20px; border-radius: 15px; border: none; font-weight: bold; cursor: pointer; transition: 0.2s; flex: 1; font-size: 13px; text-transform: uppercase; }
+        .x-btn-primary { background: var(--gold); color: white; box-shadow: 0 4px 15px rgba(255,102,0,0.4); }
+        .x-btn-secondary { background: #333; color: #aaa; }
+        .x-btn:active { transform: scale(0.95); }
+
+        /* === ТИТАНОВОЕ ОКНО NFC === */
+        #titanNfcModal {
+            position: fixed; inset: 0; background: rgba(0,0,0,0.95); 
+            z-index: 20000; display: none; align-items: center; justify-content: center;
+        }
+        .titan-box {
+            width: 340px; background: #000; border: 2px solid var(--gold); 
+            border-radius: 30px; padding: 40px 20px; text-align: center;
+            box-shadow: 0 0 60px var(--gold);
+        }
+        .titan-nfc-icon { width: 80px; margin-bottom: 20px; animation: pulse 2s infinite; }
+
+        /* === ШАПКА (КОМПАКТНАЯ) === */
+        .header { 
+            background: var(--card-bg); padding: 0 10px; 
+            display: flex; justify-content: space-between; align-items: center; 
+            border-bottom: 2px solid var(--gold); 
+            z-index: 100; flex-shrink: 0; height: 50px;
+        }
+        .header-menu { display: flex; align-items: center; gap: 2px; }
+
+        /* === ГАЛОЧКА АКТИВАЦИИ КЛЮЧА === */
+        .lock-wrapper { position: relative; display: inline-block; height: 24px; }
+        .key-active-badge { 
+            position: absolute; top: -2px; right: -2px; 
+            background: #00ff00; color: #000; font-size: 8px; 
+            width: 14px; height: 14px; border-radius: 50%; 
+            display: none; align-items: center; justify-content: center; 
+            box-shadow: 0 0 8px #00ff00; font-weight: bold; z-index: 10;
+        }
+        .key-active-badge.show { display: flex; animation: fadeIn 0.3s ease; }
+        
+        /* === ПАНЕЛЬ ЧАТОВ === */
+        #adminPanel { 
+            display: flex; background: var(--panel-bg); padding: 8px; 
+            overflow-x: auto; white-space: nowrap; border-bottom: 1px solid #333; 
+            gap: 10px; flex-shrink: 0; -webkit-overflow-scrolling: touch;
+        }
+        
+        .chat-tab-container { 
+            display: inline-flex; align-items: center; background: #2a2a2a; 
+            border-radius: 15px; padding-right: 8px; margin-right: 8px; 
+            border: 1px solid #444; position: relative; transition: all 0.3s ease;
+        }
+        .chat-tab { 
+            display: inline-flex; flex-direction: column; justify-content: center; align-items: flex-start;
+            padding: 6px 12px; border-radius: 15px; font-size: 13px; color: #888; 
+            cursor: pointer; min-height: 42px; 
+        }
+        .chat-tab.active { color: var(--gold); background: #3a2205; border: 1px solid var(--gold); }
+        
+        .tab-typing { 
+            font-size: 10px; color: var(--gold); display: none; margin-top: 2px; 
+            animation: pulse 1s infinite; font-weight: bold; text-shadow: 0 0 5px var(--gold);
+        }
+        
+        .del-chat-btn { 
+            color: #ff4444; font-size: 14px; cursor: pointer; 
+            padding: 0 5px; opacity: 0.6; transition: 0.3s; margin-left: 5px;
+        }
+        .del-chat-btn:hover { opacity: 1; transform: scale(1.2); }
+
+        .unread-badge { background: #ff3b30; color: white; border-radius: 50%; padding: 2px 6px; font-size: 10px; font-weight: bold; margin-left: 5px; display: none; }
+        .unread-badge.show { display: inline-block; }
+        
+        .status-dot { width: 10px; height: 10px; background: #444; border-radius: 50%; display: inline-block; margin-right: 5px; transition: background 0.3s, box-shadow 0.3s; }
+        .online { background: #00ff00; box-shadow: 0 0 10px #00ff00; }
+        .offline { background: #ff0000; box-shadow: 0 0 5px rgba(255,0,0,0.5); }
+        
+        .edit-btn { background: none; border: none; color: var(--gold); font-size: 18px; cursor: pointer; padding: 4px; margin-left: 2px; }
+
+        /* === ЭФФЕКТЫ ЗАМКА === */
+        @keyframes lockPulse {
+            0% { transform: scale(1); text-shadow: 0 0 5px var(--gold); }
+            50% { transform: scale(1.1); text-shadow: 0 0 15px var(--gold); }
+            100% { transform: scale(1); text-shadow: 0 0 5px var(--gold); }
+        }
+        .lock-pulsing { animation: lockPulse 1.5s infinite ease-in-out; }
+
+        /* === СООБЩЕНИЯ === */
+        .messages { 
+            flex: 1; overflow-y: auto; padding: 15px; 
+            display: flex; flex-direction: column; gap: 12px; 
+            transform: translateZ(0); will-change: scroll-position;
+            scroll-behavior: smooth;
+        }
+        
+        .bubble { 
+            max-width: 85%; padding: 10px 14px; border-radius: 18px; 
+            font-size: 15px; line-height: 1.4; position: relative; 
+            display: flex; flex-direction: column; cursor: pointer;
+            border: 1px solid rgba(255, 255, 255, 0.1); 
+            box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+            animation: msgIn 0.2s ease;
+        }
+
+        @keyframes msgIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        
+        .mine { align-self: flex-end; background: var(--msg-mine); color: #fff; border-bottom-right-radius: 2px; border-color: rgba(255, 102, 0, 0.4); }
+        .theirs { align-self: flex-start; background: var(--msg-theirs); color: #eee; border-bottom-left-radius: 2px; border: 1px solid rgba(255, 255, 255, 0.05); }
+        
+        .system-msg {
+            align-self: center; background: rgba(255, 255, 255, 0.08);
+            border: 1px solid rgba(255, 255, 255, 0.1); color: #aaa;
+            font-size: 12px; padding: 5px 15px; border-radius: 20px;
+            text-align: center; max-width: 90%; margin: 5px 0;
+            font-family: monospace; letter-spacing: 0.5px;
+        }
+
+        .msg-avatar { width: 28px; height: 28px; border-radius: 50%; background-size: cover; border: 1px solid var(--gold); margin-bottom: 4px; }
+        .msg-footer { display: flex; align-items: center; justify-content: flex-end; margin-top: 4px; gap: 4px; opacity: 0.7; }
+        .msg-time { font-size: 10px; font-weight: bold; }
+        
+        .msg-status { font-size: 14px; line-height: 10px; color: #555; transition: color 0.3s, text-shadow 0.3s; }
+        .msg-status.read { color: var(--read-color); text-shadow: 0 0 8px rgba(78, 164, 246, 0.6); }
+        
+        .msg-img { max-width: 100%; border-radius: 10px; margin-top: 5px; opacity: 0.95; background: #000; min-height: 50px; }
+
+        /* === НИЖНЯЯ ПАНЕЛЬ === */
+        .bottom-nav { background: var(--card-bg); border-top: 1px solid #333; padding-bottom: env(safe-area-inset-bottom); flex-shrink: 0; position: relative;}
+        .emoji-bar { display: flex; justify-content: space-around; padding: 8px 10px; border-bottom: 1px solid #222; font-size: 22px; }
+        .input-area { padding: 10px; display: flex; gap: 6px; align-items: center; width: 100%; overflow: hidden; }
+        input#msgInput { flex: 1; min-width: 0; background: #000; border: 1px solid #444; padding: 10px 15px; border-radius: 25px; color: #fff; outline: none; font-size: 16px; }
+        .send-btn { background: var(--gold); border: none; width: 40px; height: 40px; border-radius: 50%; color: white; cursor: pointer; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+        #voiceBtn.recording { background: #ff0000; animation: pulse 1s infinite; border: 2px solid white; }
+        #attachBtn { background: #222; border: 1px solid #444; }
+        
+        .rec-timer { 
+            font-size: 12px; color: #ff4444; text-align: center; font-weight: bold; 
+            display: none; position: absolute; top: -18px; left: 50%; transform: translateX(-50%); 
+        }
+
+        #callOverlay { position: fixed; inset: 0; background: rgba(0,0,0,0.85); z-index: 4000; display: none; align-items: center; justify-content: center; backdrop-filter: blur(5px); }
+        #callWindow {
+            position: absolute; width: 350px; background: #1a1a1a;
+            border: 2px solid var(--gold); border-radius: 20px; overflow: hidden;
+            display: flex; flex-direction: column; align-items: center;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.9);
+            top: 50%; left: 50%; transform: translate(-50%, -50%);
+        }
+        .drag-header { width: 100%; height: 40px; background: #2a2a2a; cursor: grab; display: flex; align-items: center; justify-content: center; border-bottom: 1px solid #444; color: #888; font-size: 12px; letter-spacing: 2px; touch-action: none; }
+        .drag-header:active { cursor: grabbing; background: var(--gold); color: black; }
+        
+        .video-container { width: 100%; height: 400px; position: relative; background: #000; display: flex; align-items: center; justify-content: center; }
+        #remoteVideo { width: 100%; height: 100%; object-fit: cover; }
+        #localVideo { position: absolute; bottom: 10px; right: 10px; width: 100px; height: 140px; background: #222; border: 2px solid #fff; border-radius: 10px; object-fit: cover; z-index: 2; transition: 0.3s; }
+        
+        #callStatus {
+            position: absolute; top: 15%; width: 100%; text-align: center; z-index: 5;
+            background: rgba(0,0,0,0.4); padding: 10px 0;
+        }
+        .call-user-name { font-size: 26px; font-weight: bold; color: white; text-shadow: 0 2px 5px #000; margin-top: 5px; animation: pulse 2s infinite; }
+        .call-type-label { font-size: 14px; letter-spacing: 2px; text-transform: uppercase; font-weight: bold; }
+
+        .call-controls-panel { padding: 15px; width: 100%; display: flex; justify-content: center; gap: 15px; background: #1a1a1a; flex-wrap: wrap; }
+        .call-avatar-large { width: 150px; height: 150px; border-radius: 50%; background: #333 center/cover; border: 4px solid var(--gold); animation: pulse 2s infinite; position: absolute; z-index: 1; display: none; }
+        
+        .call-btn { width: 60px; height: 60px; border-radius: 50%; border: none; color: white; font-size: 24px; cursor: pointer; display: flex; align-items: center; justify-content: center; z-index: 10; background: #333; box-shadow: 0 4px 10px #000; transition: 0.2s; }
+        .call-btn:active { transform: scale(0.9); }
+        .btn-accept { background: #00ff00; box-shadow: 0 0 15px rgba(0,255,0,0.5); } 
+        .btn-decline { background: #ff0000; box-shadow: 0 0 15px rgba(255,0,0,0.5); }
+        .btn-tool { border: 1px solid #555; width: 50px; height: 50px; font-size: 20px; }
+        .btn-tool.active { background: #fff; color: #000; }
+
+        #fullImgOverlay, #setupOverlay { position: fixed; inset: 0; background: #000; z-index: 4000; display: none; flex-direction: column; align-items: center; justify-content: center; }
+        #avatarPreview { width: 100px; height: 100px; border-radius: 50%; border: 2px solid var(--gold); margin-bottom: 25px; background: #222 center/cover; }
+        .elegant-input { width: 70%; background: none; border: none; border-bottom: 2px solid #333; color: #fff; padding: 10px; text-align: center; font-size: 18px; margin-bottom: 15px; }
+        .login-btn { border-radius: 20px; padding: 15px 35px; font-weight: bold; background: var(--gold); border: none; color: white; cursor: pointer; }
+        #fullImgOverlay img { max-width: 95%; max-height: 90%; border-radius: 10px; }
+
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes pulse { 0% { opacity: 0.6; } 50% { opacity: 1; } 100% { opacity: 0.6; } }
+
+        .auth-step { display: none; width: 100%; flex-direction: column; align-items: center; animation: fadeIn 0.4s ease; }
+        .auth-step.active { display: flex; }
+        
+        .bio-scanner { width: 120px; height: 120px; border: 3px solid var(--gold); border-radius: 30px; margin-bottom: 25px; position: relative; overflow: hidden; cursor: pointer; background: url('https://img.icons8.com/ios/100/ff6600/fingerprint.png') no-repeat center/60%; box-shadow: 0 0 30px rgba(255, 102, 0, 0.2); }
+        .scan-line { width: 100%; height: 3px; background: var(--gold); position: absolute; top: 0; box-shadow: 0 0 15px var(--gold); animation: scanLoop 2s infinite linear; }
+        @keyframes scanLoop { 0% { top: 0; } 100% { top: 100%; } }
     </style>
+
+    <link rel="manifest" href="manifest.json">
+    <meta name="mobile-web-app-capable" content="yes">
+    <script>if('serviceWorker' in navigator){navigator.serviceWorker.register('sw.js');}</script>
 </head>
 <body>
 
-<header>
-    <div id="status" style="color: var(--warn)">СИСТЕМА: ГОТОВА</div>
-    <button id="connectBtn">АКТИВИРОВАТЬ</button>
-</header>
+    <div id="xModalOverlay">
+        <div class="x-modal" id="xModalBox">
+            <div class="x-modal-title" id="xModalTitle">X-SYSTEM</div>
+            <div class="x-modal-text" id="xModalText"></div>
+            <input type="text" id="xModalInput" class="x-modal-input" style="display:none;" placeholder="Введите...">
+            <div class="x-modal-btns">
+                <button class="x-btn x-btn-secondary" id="xBtnCancel" style="display:none;">ОТМЕНА</button>
+                <button class="x-btn x-btn-primary" id="xBtnOk">ПРИНЯТЬ</button>
+            </div>
+        </div>
+    </div>
 
-<div class="grid">
-    <div class="card card-full"><div class="val" id="fuelVal">--</div><div class="unit">ТОПЛИВО (Л)</div></div>
-    <div class="card"><div class="val" id="speedVal">0</div><div class="unit">КМ/Ч</div></div>
-    <div class="card"><div class="val" id="consVal">0.0</div><div class="unit">Л/Ч</div></div>
-</div>
+    <div id="titanNfcModal">
+        <div class="titan-box">
+            <img src="https://img.icons8.com/ios/100/ff6600/nfc-ring.png" class="titan-nfc-icon">
+            <div class="x-modal-title">🛰️ ТИТАНОВЫЙ КЛЮЧ</div>
+            <p id="titanStatus" style="color:#888; margin-bottom:20px;">Приложите метку или введите код</p>
+            <input type="password" id="titanInput" class="x-modal-input" placeholder="Код доступа...">
+            <div class="x-modal-btns" style="flex-wrap: wrap; gap: 10px;">
+                <button class="x-btn x-btn-secondary" onclick="closeTitanModal()">ОТМЕНА</button>
+                <button class="x-btn x-btn-primary" onclick="applyTitanFromInput()">ПРИНЯТЬ</button>
+            </div>
+        </div>
+    </div>
 
-<div id="log"></div>
+    <audio id="dialTone" loop src="https://media.geeksforgeeks.org/wp-content/uploads/20190531135120/beep.mp3"></audio>
+    <audio id="ringTone" loop src="https://assets.mixkit.co/active_storage/sfx/1359/1359-preview.mp3"></audio>
+    <audio id="msgSound" src="https://assets.mixkit.co/active_storage/sfx/2346/2346-preview.mp3"></audio>
+
+    <div id="callOverlay">
+        <div id="callWindow">
+            <div id="dragHeader" class="drag-header">::: X-CALL :::</div>
+            
+            <div class="video-container">
+                <div class="call-avatar-large" id="callAvatarLarge"></div>
+                <video id="remoteVideo" autoplay playsinline></video>
+                <video id="localVideo" autoplay playsinline muted></video>
+                <div id="callStatus"></div>
+            </div>
+
+            <div class="call-controls-panel">
+                <div id="incomingControls" style="display:none; gap:25px;">
+                    <button class="call-btn btn-decline" onclick="rejectCall()">✖</button>
+                    <button class="call-btn btn-accept" onclick="answerCall()">📞</button>
+                </div>
+                <div id="activeControls" style="display:none; gap:15px; align-items:center;">
+                    <button id="camSwitchBtn" class="call-btn btn-tool" onclick="switchCamera()" title="Сменить камеру">🔄</button>
+                    <button id="speakerBtn" class="call-btn btn-tool" onclick="toggleSpeaker()" title="Громкая связь">🔊</button>
+                    <button class="call-btn btn-decline" onclick="endCall()">✖</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="fullImgOverlay" onclick="this.style.display='none'"><img id="fullImgContent" src=""></div>
+
+    <div id="setupOverlay">
+        <h2 style="color:var(--gold); letter-spacing: 2px;">X-CONECT</h2>
+        
+        <div id="authStep1" class="auth-step active">
+            <p style="color:#888; margin-bottom:15px;">Титановый контроль доступа</p>
+            <div class="bio-scanner" onclick="startNfcLogin()" style="background: url('https://img.icons8.com/ios/100/ff6600/nfc-ring.png') no-repeat center/60%;">
+                <div class="scan-line" id="nfcScanLine" style="display:none;"></div>
+            </div>
+            <p id="nfcStatusText" style="color:var(--gold); font-size:14px; margin-bottom:15px; text-align:center;">Нажмите на радар и приложите ключ</p>
+            
+            <div id="manualUidFallback" style="display:none; width: 100%; text-align: center; margin-top:20px;">
+                <input type="text" id="manualUidInput" class="elegant-input" placeholder="Введите UID (для ПК)...">
+                <button class="login-btn" onclick="processLoginUid(document.getElementById('manualUidInput').value)">ВХОД</button>
+            </div>
+        </div>
+
+        <div id="authStep2" class="auth-step">
+            <p style="color:#00ff00; margin-bottom:15px;">Ключ подтвержден! Завершите настройку</p>
+            <div id="avatarPreview" onclick="document.getElementById('fileInput').click()"></div>
+            <input type="file" id="fileInput" style="display:none" accept="image/*">
+            <input type="text" id="nameInput" class="elegant-input" placeholder="Ник пользователя..." maxlength="15">
+            <input type="password" id="passInput" class="elegant-input" placeholder="Пароль системы..." maxlength="20">
+            
+            <div id="biometricStatus" style="margin-bottom: 20px;"></div>
+
+            <button onclick="writeTitanKeyToMTag()" style="width: 70%; background: #222; border: 1px solid var(--gold); color: var(--gold); padding: 10px; border-radius: 15px; margin-bottom: 20px; font-size: 12px; font-weight: bold;">🛠️ ПРОШИТЬ ПАРОЛЬ НА МЕТКУ</button>
+
+            <button id="loginBtn" class="login-btn" onclick="saveProfile()">СОХРАНИТЬ И ВОЙТИ</button>
+        </div>
+
+        <div id="authStep3" class="auth-step">
+            <p style="color:#888; margin-bottom:20px;">Защитите вход (Системный замок)</p>
+            <div class="bio-scanner" onclick="loginWithPasskey()" style="background: url('https://img.icons8.com/ios/100/ff6600/fingerprint.png') no-repeat center/60%;">
+                <div class="scan-line"></div>
+            </div>
+            <button class="login-btn" onclick="loginWithPasskey()">ВОЙТИ ПО СИСТЕМЕ</button>
+            <button style="background:none; border:none; color:var(--gold); margin-top:15px; text-decoration:underline;" onclick="changeAuthStep(1)">СМЕНИТЬ КЛЮЧ (NFC)</button>
+        </div>
+    </div>
+
+    <div class="header">
+        <div style="display: flex; align-items: center; gap: 5px;">
+            <span id="statusDot" class="status-dot"></span>
+            <b id="headerTitle" style="font-size: 14px;">X-CONECT</b>
+        </div>
+        <div class="header-menu">
+            <div class="lock-wrapper">
+                <div id="keyBadge" class="key-active-badge">✓</div>
+                <button id="lockBtn" class="edit-btn" onclick="handleSecureClick()" title="Титановая защита">🔓</button>
+            </div>
+            <button class="edit-btn" onclick="copyInviteLink()" title="Пригласить">🔗</button>
+            <button class="edit-btn" onclick="startCall('audio')" title="Аудио звонок">📞</button>
+            <button class="edit-btn" onclick="startCall('video')" title="Видео звонок">📹</button>
+            <button class="edit-btn" onclick="findUser()" title="Поиск">🔍</button>
+            <button class="edit-btn" onclick="openSettings()" title="Настройки">⚙️</button>
+            <button class="edit-btn" onclick="logout()" title="Выход">🚪</button>
+        </div>
+    </div>
+
+    <div id="adminPanel"></div>
+    <div class="messages" id="chatBox"></div>
+
+    <div class="bottom-nav">
+        <div id="recTimer" class="rec-timer">00:00</div>
+        
+        <div class="offline-box" style="display: flex; justify-content: center; gap: 10px; padding: 5px; background: #111; border-bottom: 1px solid #333;">
+            <button onclick="makeQRFromInput()" style="background: #2c3e50; border: 1px solid #555; border-radius: 8px; padding: 6px 12px; color: white; font-size: 12px;">🔲 ТЕКСТ</button>
+            <input type="file" id="nativeFileInput" style="display:none" onchange="nativeShareFile(this)">
+            <button onclick="document.getElementById('nativeFileInput').click()" style="background: var(--gold); border: none; border-radius: 8px; padding: 6px 12px; color: white; font-size: 12px; font-weight:bold;">📤 ФАЙЛ (Air)</button>
+            <button onclick="startScanner()" style="background: #2c3e50; border: 1px solid #555; border-radius: 8px; padding: 6px 12px; color: white; font-size: 12px;">📷 ПРИНЯТЬ</button>
+        </div>
+        <div class="emoji-bar">
+            <span onclick="insertEmoji('❤️')">❤️</span><span onclick="insertEmoji('🔥')">🔥</span>
+            <span onclick="insertEmoji('🚀')">🚀</span><span onclick="insertEmoji('👍')">👍</span>
+            <span onclick="sendTestPush()">🔔</span> 
+        </div>
+        <div class="input-area">
+            <input type="file" id="imgInput" style="display:none" accept="image/*" onchange="sendImage(this)">
+            <button id="attachBtn" class="send-btn" onclick="document.getElementById('imgInput').click()">📎</button>
+            <button id="voiceBtn" class="send-btn" onclick="toggleVoice()">🎤</button>
+            <input type="text" id="msgInput" placeholder="Ваше сообщение..." onkeypress="if(event.key==='Enter') sendMsg()">
+            <button class="send-btn" onclick="sendMsg()">🚀</button>
+        </div>
+    </div>
 
 <script>
-    const TANK_VOLUME = 45.0;
-    const FUEL_MAGIC = 0.335;
-    
-    let device, isConnected = false, isReady = false, buffer = "";
-    let commandQueue = ['010D', '0110', '012F']; 
-    let cmdIdx = 0;
+// === СИСТЕМА ТОТАЛЬНОЙ ЗАЩИТЫ ТИТАН ===
+document.addEventListener('contextmenu', event => event.preventDefault()); 
 
-    function addLog(msg, cls) {
-        const d = document.createElement('div');
-        d.className = cls;
-        d.innerText = `[${new Date().toLocaleTimeString()}] ${msg}`;
-        const log = document.getElementById('log');
-        log.appendChild(d);
-        log.scrollTop = log.scrollHeight;
+document.addEventListener('keydown', function(e) {
+    if (
+        (e.ctrlKey && (e.keyCode === 67 || e.keyCode === 85 || e.keyCode === 83 || e.keyCode === 65 || e.keyCode === 73 || e.keyCode === 74)) || 
+        (e.keyCode === 123) // F12
+    ) {
+        xShowModal({ title: "🛡️ ТИТАН", text: "Доступ к системным функциям заблокирован!" });
+        e.preventDefault();
+        return false;
+    }
+}, false);
+
+let isAuthorized = false;
+let chatLocks = {}; 
+let titanMasterSecret = ""; 
+let nfcAbortController = null;
+let currentNfcUid = ""; // Текущий UID для входа
+
+// === ГОЛОСОВОЙ ДВИЖОК ===
+function speak(text) {
+    if ('speechSynthesis' in window) {
+        const utterance = new SpeechSynthesisUtterance(text);
+        utterance.lang = 'ru-RU';
+        utterance.rate = 0.9;
+        window.speechSynthesis.speak(utterance);
+    }
+}
+
+// === СИСТЕМА КАСТОМНЫХ МОДАЛЬНЫХ ОКОН (X-MODAL) ===
+function xShowModal({ title, text, showInput = false, showCancel = false, placeholder = "Введите..." }) {
+    return new Promise((resolve) => {
+        const overlay = document.getElementById('xModalOverlay');
+        const box = document.getElementById('xModalBox');
+        const input = document.getElementById('xModalInput');
+        const cancelBtn = document.getElementById('xBtnCancel');
+        const okBtn = document.getElementById('xBtnOk');
+
+        document.getElementById('xModalTitle').innerText = title || 'X-CONECT';
+        document.getElementById('headerTitle').innerText = title || 'X-CONECT';
+        document.getElementById('xModalText').innerText = text || '';
+        
+        input.style.display = showInput ? 'block' : 'none';
+        input.placeholder = placeholder;
+        input.value = '';
+        cancelBtn.style.display = showCancel ? 'block' : 'none';
+        
+        overlay.style.display = 'flex';
+        setTimeout(() => box.classList.add('show'), 10);
+        
+        if (showInput) setTimeout(() => input.focus(), 300);
+
+        const close = (val) => {
+            box.classList.remove('show');
+            setTimeout(() => { overlay.style.display = 'none'; resolve(val); }, 300);
+        };
+
+        okBtn.onclick = () => close(showInput ? input.value : true);
+        cancelBtn.onclick = () => close(null);
+        
+        input.onkeypress = (e) => { if(e.key==='Enter') okBtn.click(); };
+    });
+}
+
+// ПЕРЕХВАТ СТАНДАРТНЫХ ФУНКЦИЙ
+window.alert = (t) => xShowModal({ text: t });
+window.confirm = (t) => xShowModal({ text: t, showCancel: true });
+window.prompt = (t, p) => xShowModal({ text: t, showInput: true, showCancel: true, placeholder: p });
+
+// === НОВАЯ ТИТАНОВАЯ ЛОГИКА ШИФРОВАНИЯ ===
+function getActiveKey() { 
+    if (chatLocks[currentActiveChat]) {
+        if (!titanMasterSecret) return "LOCKED_NO_KEY";
+        return CryptoJS.SHA256(titanMasterSecret + currentActiveChat).toString();
+    }
+    return ""; 
+}
+
+function encrypt(data) {
+    const key = getActiveKey();
+    if (!key || !data || key === "LOCKED_NO_KEY") return data;
+    return CryptoJS.AES.encrypt(data, key).toString();
+}
+
+function decrypt(cipher) {
+    const key = getActiveKey();
+    if (!key || !cipher) return cipher;
+    
+    // Если ключ не активен, а сообщение зашифровано (AES формат)
+    if (key === "LOCKED_NO_KEY") {
+        return (cipher.startsWith('U2FsdGVkX1')) ? "🔐 [ЗАШИФРОВАНО]" : cipher;
+    }
+    
+    // Если это не AES-строка, значит это обычный текст, пришедший до защиты
+    if (!cipher.startsWith('U2FsdGVkX1')) return cipher;
+
+    try {
+        const bytes = CryptoJS.AES.decrypt(cipher, key);
+        const originalText = bytes.toString(CryptoJS.enc.Utf8);
+        return originalText ? originalText : "🔐 [ОШИБКА КЛЮЧА]";
+    } catch (e) { return "🔐 [КАША]"; }
+}
+
+function updateLockButtonUI() {
+    const btn = document.getElementById('lockBtn');
+    const badge = document.getElementById('keyBadge');
+    
+    if (chatLocks[currentActiveChat]) {
+        btn.innerHTML = "🔒";
+        btn.style.color = titanMasterSecret ? "var(--gold)" : "#ff3b30";
+        btn.classList.add('lock-pulsing');
+        
+        if (titanMasterSecret) {
+            badge.classList.add('show');
+        } else {
+            badge.classList.remove('show');
+        }
+    } else {
+        btn.innerHTML = "🔓";
+        btn.style.color = "#888";
+        btn.classList.remove('lock-pulsing');
+        badge.classList.remove('show');
+    }
+}
+
+async function handleSecureClick() {
+    if (currentActiveChat === myChatId) return;
+    
+    if (chatLocks[currentActiveChat] && !titanMasterSecret) {
+        openTitanModal();
+        return;
     }
 
-    document.getElementById('connectBtn').addEventListener('click', async () => {
-        try {
-            device = await navigator.usb.requestDevice({ filters: [{ vendorId: 0x0403, productId: 0x6001 }] });
-            await device.open();
-            if (device.configuration === null) await device.selectConfiguration(1);
-            await device.claimInterface(0);
-
-            // Твоя рабочая настройка 9600 из файла
-            await device.controlTransferOut({
-                requestType: 'vendor', recipient: 'device',
-                request: 0x03, value: 0x4138, index: 0x0000 
+    if (!chatLocks[currentActiveChat]) {
+        openTitanModal();
+    } else {
+        if (await window.confirm("Снять титановую защиту и открыть чат?")) {
+            titanMasterSecret = "";
+            socket.emit('chat_lock_toggle', { 
+                roomId: currentActiveChat, 
+                isLocked: false,
+                user: myName
             });
+            chatLocks[currentActiveChat] = false;
+            sendSystemMessage("🔓 ЗАЩИТА СНЯТА");
+            updateLockButtonUI();
+            loadHistory(currentActiveChat);
+        }
+    }
+}
 
-            addLog(">>> ПОДКЛЮЧЕНО (FTDI 9600 OK)", "sys");
-            document.getElementById('status').innerText = "ПОИСК ELM...";
-            isConnected = true;
+async function openTitanModal() {
+    const modal = document.getElementById('titanNfcModal');
+    const input = document.getElementById('titanInput');
+    const status = document.getElementById('titanStatus');
+    
+    modal.style.display = 'flex';
+    input.value = '';
+    input.focus();
+    
+    status.innerHTML = "<span style='color:var(--gold)'>⏳ Инициализация датчиков...</span>";
+    
+    if ('NDEFReader' in window) {
+        if (nfcAbortController) nfcAbortController.abort();
+        nfcAbortController = new AbortController();
+        try {
+            const ndef = new NDEFReader();
+            await ndef.scan({ signal: nfcAbortController.signal });
+            status.innerHTML = "<span style='color:#00ff00'>📡 АНТЕННА АКТИВНА. Приложите метку...</span>";
             
-            readLoop();
-            
-            // "Прогрев" ELM (задержки увеличены для стабильности на 9600)
-            setTimeout(() => sendOBD("ATZ"), 500);
-            setTimeout(() => sendOBD("ATE0"), 1500);
-            setTimeout(() => sendOBD("ATSP0"), 2500); 
+            ndef.onreading = event => {
+                const decoder = new TextDecoder();
+                titanMasterSecret = decoder.decode(event.message.records[0].data);
+                finalizeTitanActivation();
+            };
+        } catch (e) { 
+            status.innerText = "Введите секретный код доступа:"; 
+        }
+    } else {
+        status.innerText = "Введите секретный код доступа:";
+    }
+}
 
-        } catch (e) { addLog("Ошибка доступа: " + e.message, "sys"); }
+function applyTitanFromInput() {
+    const val = document.getElementById('titanInput').value.trim();
+    if (val) {
+        titanMasterSecret = val;
+        finalizeTitanActivation();
+    } else {
+        window.alert("Введите ключ!");
+    }
+}
+
+function finalizeTitanActivation() {
+    const status = document.getElementById('titanStatus');
+    status.innerHTML = "<span style='color:#00ff00; font-weight:bold;'>✅ ТИТАН АКТИВИРОВАН</span>";
+    speak("Защита Титан активирована");
+
+    setTimeout(() => {
+        if (nfcAbortController) nfcAbortController.abort();
+        document.getElementById('titanNfcModal').style.display = 'none';
+        
+        socket.emit('chat_lock_toggle', { 
+            roomId: currentActiveChat, 
+            isLocked: true,
+            user: myName
+        });
+
+        chatLocks[currentActiveChat] = true;
+        sendSystemMessage("🛡️ ВКЛЮЧЕН ЗАЩИЩЕННЫЙ РЕЖИМ");
+        updateLockButtonUI();
+        loadHistory(currentActiveChat);
+    }, 1500); 
+}
+
+function closeTitanModal() {
+    if (nfcAbortController) nfcAbortController.abort();
+    document.getElementById('titanNfcModal').style.display = 'none';
+}
+
+// === ФУНКЦИЯ ПРОГРАММАТОРА МЕТОК ===
+async function writeTitanKeyToMTag() {
+    const secretToWrite = await window.prompt("Введите пароль, который нужно ЗАПИСАТЬ на метку (Для шифрования):", "");
+    
+    if (!secretToWrite) return;
+
+    if ('NDEFReader' in window) {
+        try {
+            const ndef = new NDEFReader();
+            await window.alert("После нажатия ОК приложите метку к задней панели телефона");
+            await ndef.write(secretToWrite);
+            window.alert("✅ ГОТОВО! Пароль записан успешно.");
+        } catch (error) {
+            window.alert("❌ Ошибка записи: " + error);
+        }
+    } else {
+        window.alert("NFC на этом устройстве не поддерживает запись.");
+    }
+}
+
+// === НОВАЯ ЛОГИКА ВХОДА (NFC UID) ===
+async function startNfcLogin() {
+    const statusText = document.getElementById('nfcStatusText');
+    const scanLine = document.getElementById('nfcScanLine');
+    if ('NDEFReader' in window) {
+        try {
+            const ndef = new NDEFReader();
+            await ndef.scan();
+            scanLine.style.display = 'block';
+            statusText.innerHTML = "<span style='color:#00ff00'>📡 Жду касания метки...</span>";
+            speak("Приложите ключ");
+            
+            ndef.onreading = event => {
+                scanLine.style.display = 'none';
+                const uid = event.serialNumber; 
+                processLoginUid(uid);
+            };
+        } catch (error) {
+            statusText.innerHTML = "<span style='color:red'>NFC недоступен.</span>";
+            document.getElementById('manualUidFallback').style.display = 'block';
+        }
+    } else {
+        statusText.innerHTML = "<span style='color:red'>NFC не поддерживается браузером.</span>";
+        document.getElementById('manualUidFallback').style.display = 'block';
+    }
+}
+
+async function processLoginUid(uid) {
+    if (!uid) return;
+    uid = uid.toUpperCase(); // Нормализация формата
+    document.getElementById('nfcStatusText').innerHTML = "⏳ Авторизация на сервере...";
+    
+    try {
+        const res = await fetch(`${API_BASE}/x-api/auth-nfc`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ uid: uid })
+        });
+        const data = await res.json();
+        
+        if (data.success) {
+            currentNfcUid = uid;
+            localStorage.setItem('x_nfc_uid', uid);
+
+            if (data.isNew || !data.userData.nickname) {
+                // Ключ принят, но профиля еще нет
+                changeAuthStep(2);
+                updateBiometricUI();
+                speak("Ключ подтвержден. Создайте профиль.");
+            } else {
+                // Прямой вход
+                myName = data.userData.nickname;
+                localStorage.setItem('x_user_name', myName);
+                isAuthorized = true;
+                setupOverlay.style.display = 'none';
+                updateUI();
+                socket.emit('join_room', currentActiveChat);
+                processInvite();
+                speak("Доступ разрешен");
+            }
+        } else {
+            document.getElementById('nfcStatusText').innerHTML = "<span style='color:red'>❌ " + data.message + "</span>";
+            speak("Доступ запрещен");
+        }
+    } catch (e) {
+        document.getElementById('nfcStatusText').innerHTML = "<span style='color:red'>Ошибка связи с сервером</span>";
+    }
+}
+
+
+function toggleSecureMode() {
+    handleSecureClick();
+}
+
+    const API_BASE = "https://logist-x.store";
+    const chatBox = document.getElementById('chatBox');
+    const setupOverlay = document.getElementById('setupOverlay');
+    const statusDot = document.getElementById('statusDot');
+    const msgInput = document.getElementById('msgInput');
+    const voiceBtn = document.getElementById('voiceBtn');
+    const adminPanel = document.getElementById('adminPanel');
+    const recTimer = document.getElementById('recTimer');
+    
+    const callOverlay = document.getElementById('callOverlay');
+    const callWindow = document.getElementById('callWindow');
+    const remoteVideo = document.getElementById('remoteVideo');
+    const localVideo = document.getElementById('localVideo');
+    const callAvatarLarge = document.getElementById('callAvatarLarge');
+    const camSwitchBtn = document.getElementById('camSwitchBtn');
+    
+    const dialTone = document.getElementById('dialTone');
+    const ringTone = document.getElementById('ringTone');
+    const msgSound = document.getElementById('msgSound');
+
+    const dragHeader = document.getElementById('dragHeader');
+    let isDragging = false, dragStartX, dragStartY, initialLeft, initialTop;
+
+    function startDrag(e) {
+        const cx = e.type.includes('touch') ? e.touches[0].clientX : e.clientX;
+        const cy = e.type.includes('touch') ? e.touches[0].clientY : e.clientY;
+        isDragging = true; dragStartX = cx; dragStartY = cy;
+        const rect = callWindow.getBoundingClientRect();
+        if (callWindow.style.transform && callWindow.style.transform !== 'none') {
+            callWindow.style.left = rect.left + 'px'; callWindow.style.top = rect.top + 'px'; callWindow.style.transform = 'none';
+        }
+        initialLeft = parseInt(callWindow.style.left || rect.left); initialTop = parseInt(callWindow.style.top || rect.top);
+    }
+    function doDrag(e) {
+        if (!isDragging) return;
+        if (e.cancelable) e.preventDefault();
+        const cx = e.type.includes('touch') ? e.touches[0].clientX : e.clientX;
+        const cy = e.type.includes('touch') ? e.touches[0].clientY : e.clientY;
+        callWindow.style.left = (initialLeft + (cx - dragStartX)) + 'px';
+        callWindow.style.top = (initialTop + (cy - dragStartY)) + 'px';
+    }
+    function stopDrag() { isDragging = false; }
+    
+    dragHeader.addEventListener('mousedown', startDrag); window.addEventListener('mousemove', doDrag); window.addEventListener('mouseup', stopDrag);
+    dragHeader.addEventListener('touchstart', startDrag, {passive: false}); window.addEventListener('touchmove', doDrag, {passive: false}); window.addEventListener('touchend', stopDrag);
+
+    let myChatId = localStorage.getItem('x_chat_id');
+    if (!myChatId) { myChatId = 'chat_' + Math.random().toString(36).substr(2, 9); localStorage.setItem('x_chat_id', myChatId); }
+    let myName = localStorage.getItem('x_user_name');
+    let myPass = localStorage.getItem('x_user_pass');
+    let myAvatar = localStorage.getItem('x_user_avatar');
+    
+    let currentActiveChat = myChatId;
+    let chatCache = {};
+    let mediaRecorder, timerInterval, audioChunks = [], isRecording = false;
+
+    let peerConnection, activeCallSocket = null, incomingOffer = null, localStream = null;
+    let currentCallType = 'video'; 
+    let incomingCallType = 'video';
+    let callStartTime = null; 
+    let currentFacingMode = 'user'; 
+    const rtcConfig = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
+
+    window.onload = function() {
+        // --- GATE KEEPER: ПЕРЕХВАТ ПАРАМЕТРА ПРИГЛАШЕНИЯ ---
+        const urlParams = new URLSearchParams(window.location.search);
+        const inviteNick = urlParams.get('invite');
+        if (inviteNick) {
+            localStorage.setItem('pending_invite', inviteNick);
+            window.history.replaceState({}, document.title, window.location.pathname);
+            console.log("Инвайт сохранен:", inviteNick);
+        }
+        // ------------------------------------------------
+
+        if (myName) document.getElementById('nameInput').value = myName;
+        if (myPass) { document.getElementById('passInput').value = myPass; }
+        if (myAvatar) document.getElementById('avatarPreview').style.backgroundImage = `url(${myAvatar})`;
+        
+        setupOverlay.style.display = 'flex'; 
+        if (localStorage.getItem('x_passkey_id')) {
+            changeAuthStep(3);
+            autoLogin(); 
+            setTimeout(loginWithPasskey, 1000);
+        } else {
+            changeAuthStep(1); // Перебрасываем на NFC
+        }
+    };
+
+    const socket = io(API_BASE, { reconnection: true });
+    
+    socket.on('connect', () => {
+        statusDot.className = 'status-dot online';
+        socket.emit('join_room', myChatId);
+        joinRoom(currentActiveChat);
+        loadAllChats();
+    });
+    
+    socket.on('disconnect', () => { statusDot.className = 'status-dot offline'; });
+
+    socket.on('sync_chat_lock', (data) => {
+        if (data.roomId === currentActiveChat) {
+            chatLocks[data.roomId] = data.isLocked;
+            if (!data.isLocked) titanMasterSecret = "";
+            updateLockButtonUI();
+            loadHistory(data.roomId);
+            msgSound.play().catch(()=>{});
+        } else {
+            chatLocks[data.roomId] = data.isLocked;
+        }
     });
 
-    async function sendOBD(cmd) {
-        if (!isConnected) return;
-        addLog(`-> ${cmd}`, "tx");
-        await device.transferOut(2, new TextEncoder().encode(cmd + '\r'));
+    socket.on('refresh_chat_list', () => { loadAllChats(); });
+
+    msgInput.addEventListener('input', () => {
+        if(currentActiveChat && currentActiveChat !== myChatId) {
+            socket.emit('typing', { roomId: currentActiveChat, user: myName });
+        }
+    });
+
+    socket.on('display_typing', (data) => {
+        const tab = document.getElementById('tab_' + data.roomId);
+        if (tab) {
+            const ind = tab.querySelector('.tab-typing');
+            if (ind) {
+                ind.style.display = 'block';
+                ind.innerText = "печ...";
+                if(tab.typingTimer) clearTimeout(tab.typingTimer);
+                tab.typingTimer = setTimeout(() => { ind.style.display = 'none'; }, 2000);
+            }
+        }
+    });
+
+    socket.on('msg_read_status', (data) => {
+        if (currentActiveChat === data.roomId) {
+            document.querySelectorAll('.msg-status:not(.read)').forEach(el => {
+                el.classList.add('read');
+                el.innerText = '✓✓';
+            });
+        }
+    });
+
+    window.onfocus = () => {
+        if(currentActiveChat && currentActiveChat !== myChatId) {
+            socket.emit('mark_seen', { roomId: currentActiveChat, userId: myName });
+        }
+    };
+
+    // --- GATE KEEPER: ФУНКЦИИ ---
+    async function processInvite() {
+        const targetNick = localStorage.getItem('pending_invite');
+        if (!targetNick || !isAuthorized) return;
+
+        try {
+            const response = await fetch(`${API_BASE}/x-api/gate-knock`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ 
+                    targetNick: targetNick,
+                    guestChatId: myChatId 
+                })
+            });
+            const data = await response.json();
+            if (data.success && data.roomId) {
+                currentActiveChat = data.roomId;
+                localStorage.removeItem('pending_invite');
+                
+                chatBox.innerHTML = '';
+                await loadAllChats();
+                loadHistory(data.roomId);
+                
+                console.log("🛰️ X-SYSTEM: Чат с пригласителем открыт автоматически.");
+            }
+        } catch (e) { console.error("Ошибка инвайта:", e); }
     }
 
-    async function readLoop() {
-        const dec = new TextDecoder();
-        while (isConnected) {
+    function copyInviteLink() {
+        if (!myName) return window.alert("Сначала авторизуйтесь!");
+        const inviteUrl = `${window.location.origin}${window.location.pathname}?invite=${encodeURIComponent(myName)}`;
+        navigator.clipboard.writeText(inviteUrl).then(() => {
+            window.alert("Ссылка-инвайт скопирована!");
+        }).catch(() => {
+            window.prompt("Копируйте ссылку вручную:", inviteUrl);
+        });
+    }
+
+    async function saveProfile() {
+        const btn = document.getElementById('loginBtn');
+        const name = document.getElementById('nameInput').value.trim();
+        const pass = document.getElementById('passInput').value.trim();
+
+        if (!name || !pass) return window.alert("Введите Никнейм и Пароль!");
+        if (!currentNfcUid) currentNfcUid = localStorage.getItem('x_nfc_uid');
+        if (!currentNfcUid) return window.alert("Системная ошибка: UID ключа потерян.");
+
+        btn.innerText = "СОХРАНЕНИЕ..."; btn.disabled = true;
+
+        try {
+            const res = await fetch(`${API_BASE}/x-api/register-nick`, {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ nickname: name, password: pass, chatId: myChatId, nfc_uid: currentNfcUid })
+            });
+            const data = await res.json();
+            
+            if (data.success) {
+                myName = name; myPass = pass;
+                localStorage.setItem('x_user_name', name);
+                localStorage.setItem('x_user_avatar', myAvatar || '');
+                localStorage.setItem('x_user_pass', pass);
+                
+                isAuthorized = true; 
+                setupOverlay.style.display = 'none';
+                updateUI();
+                socket.emit('join_room', currentActiveChat);
+                processInvite(); 
+            } else { window.alert(data.message || "Ошибка регистрации."); }
+        } catch (e) { window.alert("Ошибка сети при сохранении!"); } 
+        finally { btn.innerText = "СОХРАНИТЬ И ВОЙТИ"; btn.disabled = false; }
+    }
+
+
+    async function autoLogin() {
+        let storedUid = localStorage.getItem('x_nfc_uid');
+        if (!storedUid) return;
+        try {
+            const res = await fetch(`${API_BASE}/x-api/auth-nfc`, {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ uid: storedUid })
+            });
+            const data = await res.json();
+            if (data.success && !data.isNew) { 
+                isAuthorized = true; updateUI(); processInvite(); 
+            } 
+        } catch (e) {}
+    }
+    
+    async function logout() { 
+        if (await window.confirm("Выйти из аккаунта?")) {
+            localStorage.removeItem('x_user_name');
+            localStorage.removeItem('x_passkey_id'); // Удаляем биометрию
+            localStorage.removeItem('x_nfc_uid');
+            location.reload(); 
+        }
+    }
+
+    // Мгновенная реакция на новое сообщение
+    socket.on('new_message', (m) => {
+        if (m.user !== myName) {
+            if (!m.text.startsWith('SYSTEM:')) m.text = decrypt(m.text);
+            if (currentActiveChat === m.roomId) {
+                markAsRead(m.id, m.roomId);
+                socket.emit('mark_seen', { roomId: m.roomId, userId: myName });
+                addBubble(m, 'theirs', true, false); 
+            } else { loadAllChats(); }
+            msgSound.play().catch(()=>{});
+        }
+        else if (m.text.startsWith('SYSTEM:') && !document.getElementById(m.id)) {
+            if (currentActiveChat === m.roomId) addBubble(m, 'mine', true, false);
+        }
+    });
+
+    async function sendSystemMessage(text) {
+        if(!currentActiveChat || currentActiveChat === myChatId) return;
+        const sysText = "SYSTEM:" + text;
+        await fetch(`${API_BASE}/x-api/chat-send`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ roomId: currentActiveChat, user: myName, avatar: myAvatar, text: sysText, myChatId })
+        });
+        addBubble({ user: myName, text: sysText, time: getMskTime() }, 'mine', true, true);
+    }
+
+    function setupCallUI(isVideoMode) {
+        if (isVideoMode) {
+            remoteVideo.style.display = 'block'; localVideo.style.display = 'block'; callAvatarLarge.style.display = 'none'; camSwitchBtn.style.display = 'flex';
+        } else {
+            remoteVideo.style.display = 'none'; localVideo.style.display = 'none'; callAvatarLarge.style.display = 'block'; camSwitchBtn.style.display = 'none';
+        }
+    }
+
+    socket.on('call-made', (data) => {
+        const decryptedOffer = JSON.parse(decrypt(data.offer));
+        incomingOffer = decryptedOffer; 
+        activeCallSocket = data.socket; incomingCallType = data.callType || 'video'; currentCallType = incomingCallType;
+        ringTone.currentTime = 0; ringTone.play().catch(()=>{});
+        callOverlay.style.display = 'flex'; document.getElementById('incomingControls').style.display = 'flex'; document.getElementById('activeControls').style.display = 'none';
+        const callerName = data.user || "Неизвестный";
+        const typeText = incomingCallType === 'video' ? '📹 ВХОДЯЩИЙ ВИДЕО' : '📞 ВХОДЯЩИЙ АУДИО';
+        const color = incomingCallType === 'video' ? '#ff3333' : '#44ff44';
+        document.getElementById('callStatus').innerHTML = `<div class="call-type-label" style="color:${color}">${typeText}</div><div class="call-user-name">${callerName}</div>`;
+        setupCallUI(false); callAvatarLarge.style.display = 'block'; 
+    });
+    
+    socket.on('call-rejected', () => { endCall(true); });
+    
+    async function answerCall() {
+        if (!incomingOffer) return;
+        ringTone.pause(); 
+        document.getElementById('incomingControls').style.display = 'none'; document.getElementById('activeControls').style.display = 'flex'; 
+        document.getElementById('callStatus').innerHTML = "<div class='call-type-label' style='color:white'>СОЕДИНЕНИЕ...</div>";
+        callStartTime = Date.now(); setupCallUI(incomingCallType === 'video');
+        peerConnection = new RTCPeerConnection(rtcConfig);
+        peerConnection.onicecandidate = (e) => { if (e.candidate) socket.emit('ice-candidate', { candidate: e.candidate, to: activeCallSocket }); };
+        peerConnection.ontrack = (e) => { remoteVideo.srcObject = e.streams[0]; };
+        await peerConnection.setRemoteDescription(new RTCSessionDescription(incomingOffer));
+        try {
+            const constraints = { audio: true, video: incomingCallType === 'video' };
+            localStream = await navigator.mediaDevices.getUserMedia(constraints);
+            if(incomingCallType === 'video') localVideo.srcObject = localStream;
+            localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
+            const answer = await peerConnection.createAnswer(); await peerConnection.setLocalDescription(answer);
+            const secureAnswer = encrypt(JSON.stringify(answer));
+            socket.emit('make-answer', { answer: secureAnswer, to: activeCallSocket });
+            setTimeout(() => document.getElementById('callStatus').innerText = "", 1500);
+        } catch (e) { window.alert("Ошибка доступа к камере/микрофону!"); endCall(); }
+    }
+
+    socket.on('answer-made', async (data) => { 
+        dialTone.pause(); 
+        callStartTime = Date.now(); 
+        const decAnswer = JSON.parse(decrypt(data.answer));
+        await peerConnection.setRemoteDescription(new RTCSessionDescription(decAnswer)); 
+        document.getElementById('callStatus').innerText = ""; 
+    });
+    socket.on('ice-candidate', async (data) => { try { if(peerConnection) await peerConnection.addIceCandidate(new RTCIceCandidate(data.candidate)); } catch(e){} });
+
+    async function startCall(type) {
+        if (currentActiveChat === myChatId) return window.alert("Сначала выберите контакт!");
+        currentCallType = type; dialTone.currentTime = 0; dialTone.play().catch(()=>{});
+        callOverlay.style.display = 'flex'; document.getElementById('incomingControls').style.display = 'none'; document.getElementById('activeControls').style.display = 'flex';
+        const typeText = type === 'video' ? '📹 ЗВОНОК (ВИДЕО)...' : '📞 ЗВОНОК (АУДИО)...';
+        document.getElementById('callStatus').innerHTML = `<div class="call-type-label" style="color:white">${typeText}</div>`;
+        setupCallUI(type === 'video');
+        peerConnection = new RTCPeerConnection(rtcConfig);
+        peerConnection.onicecandidate = (e) => { if (e.candidate) socket.emit('ice-candidate', { candidate: e.candidate, to: currentActiveChat }); };
+        peerConnection.ontrack = (e) => { remoteVideo.srcObject = e.streams[0]; };
+        try {
+            const constraints = { audio: true, video: type === 'video' };
+            localStream = await navigator.mediaDevices.getUserMedia(constraints);
+            if (type === 'video') localVideo.srcObject = localStream;
+            localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
+            const offer = await peerConnection.createOffer(); await peerConnection.setLocalDescription(offer);
+            const secureOffer = encrypt(JSON.stringify(offer));
+            socket.emit('call-user', { offer: secureOffer, roomId: currentActiveChat, callType: type, user: myName });
+        } catch (e) { window.alert("Ошибка доступа. Проверьте разрешения камеры."); endCall(); }
+    }
+
+    function rejectCall() { 
+        let target = activeCallSocket || currentActiveChat;
+        socket.emit('reject-call', { to: target }); 
+        sendSystemMessage(`Пропущенный ${incomingCallType === 'audio' ? 'аудио' : 'видео'} звонок`);
+        endCall(); 
+    }
+    
+    function endCall(isRemoteReject = false) {
+        dialTone.pause(); ringTone.pause();
+        if (localStream) localStream.getTracks().forEach(track => track.stop());
+        if (peerConnection) peerConnection.close();
+        if (callStartTime && !isRemoteReject) {
+            const d = Date.now() - callStartTime;
+            const min = Math.floor(d / 60000); const sec = Math.floor((d % 60000) / 1000).toString().padStart(2, '0');
+            const icon = currentCallType === 'audio' ? '📞' : '📹';
+            sendSystemMessage(`${icon} ${currentCallType === 'audio' ? 'Аудио' : 'Видео'}: ${min}:${sec}`);
+        } else if (!callStartTime && !isRemoteReject && activeCallSocket === null) {
+            sendSystemMessage("Звонок отменен");
+        }
+        if (!isRemoteReject && currentActiveChat && currentActiveChat !== myChatId) {
+            socket.emit('reject-call', { to: currentActiveChat });
+        }
+        peerConnection = null; incomingOffer = null; callStartTime = null; activeCallSocket = null;
+        callOverlay.style.display = 'none'; remoteVideo.srcObject = null; localVideo.srcObject = null;
+        callWindow.style.transform = 'translate(-50%, -50%)'; callWindow.style.top = '50%'; callWindow.style.left = '50%';
+    }
+
+    async function switchCamera() {
+        if (!localStream || currentCallType !== 'video') return;
+        currentFacingMode = currentFacingMode === 'user' ? 'environment' : 'user';
+        try {
+            const newStream = await navigator.mediaDevices.getUserMedia({ audio: false, video: { facingMode: { exact: currentFacingMode } } }).catch(() => navigator.mediaDevices.getUserMedia({ video: { facingMode: currentFacingMode } }));
+            const newTrack = newStream.getVideoTracks()[0];
+            const sender = peerConnection.getSenders().find(s => s.track && s.track.kind === 'video');
+            if (sender) sender.replaceTrack(newTrack);
+            localStream.removeTrack(localStream.getVideoTracks()[0]); localStream.addTrack(newTrack); localVideo.srcObject = localStream;
+        } catch (e) { currentFacingMode = currentFacingMode === 'user' ? 'environment' : 'user'; }
+    }
+
+    async function toggleSpeaker() {
+        const btn = document.getElementById('speakerBtn'); const el = document.getElementById('remoteVideo');
+        if ('setSinkId' in HTMLMediaElement.prototype) {
             try {
-                const res = await device.transferIn(1, 64);
-                if (res.data.byteLength > 2) {
-                    // КЛЮЧЕВОЙ МОМЕНТ: Отрезаем первые 2 байта статуса FTDI
-                    const cleanData = new Uint8Array(res.data.buffer, 2);
-                    const text = dec.decode(cleanData);
-                    
-                    // Если в ответе есть хоть что-то кроме мусора
-                    if (text.trim()) {
-                        addLog(`<- ${text.replace(/\r/g, ' ')}`, "rx");
-                        buffer += text;
-
-                        if (buffer.includes('>')) {
-                            const cleanResp = buffer.replace(/>/g, '').trim();
-                            if (cleanResp) parseOBD(cleanResp);
-                            buffer = '';
-                            
-                            if (!isReady) {
-                                isReady = true;
-                                addLog("=== ELM ОТВЕТИЛ (СВЯЗЬ ЕСТЬ) ===", "sys");
-                                document.getElementById('status').innerText = "ONLINE";
-                                document.getElementById('status').style.color = "#0f0";
-                                document.getElementById('connectBtn').style.display = "none";
-                                poll();
-                            }
-                        }
-                    }
+                if (el.sinkId !== '') { await el.setSinkId(''); btn.classList.remove('active'); }
+                else {
+                    const dev = await navigator.mediaDevices.enumerateDevices();
+                    const spk = dev.find(d => d.kind === 'audiooutput' && (d.label.toLowerCase().includes('speaker') || d.label.toLowerCase().includes('громкая')));
+                    await el.setSinkId(spk ? spk.deviceId : 'default'); btn.classList.add('active');
                 }
-            } catch (e) { isConnected = false; break; }
+            } catch (e) {}
+        } else window.alert("Управляется системой (iOS).");
+    }
+
+    function updateUI() { document.getElementById('headerTitle').innerText = myName || "X-CONECT"; loadAllChats(); }
+    
+    async function loadAllChats() {
+        if (!isAuthorized && localStorage.getItem('x_passkey_id')) return; 
+        if (!myName) return;
+        try {
+            const res = await fetch(`${API_BASE}/x-api/chat-list?myId=${myChatId}&myName=${myName}`);
+            const chats = await res.json();
+            adminPanel.innerHTML = '';
+            const frag = document.createDocumentFragment();
+            chats.forEach(chat => {
+                let cleanName = chat.lastUser || "Чат";
+                const container = document.createElement('div');
+                container.className = 'chat-tab-container';
+                container.id = 'tab_' + chat.id;
+                const btn = document.createElement('div');
+                btn.className = `chat-tab ${currentActiveChat === chat.id ? 'active' : ''}`;
+                const badge = chat.unreadCount > 0 ? `<span class="unread-badge show">${chat.unreadCount}</span>` : '';
+                const typingIndicator = `<div class="tab-typing"></div>`;
+                btn.innerHTML = `<div><span class="status-dot ${chat.isOnline?'online':'offline'}"></span> ${cleanName} ${badge}</div>${typingIndicator}`;
+                btn.onclick = () => {
+                    if(currentActiveChat === chat.id) return;
+                    currentActiveChat = chat.id; 
+                    chatBox.innerHTML = ''; 
+                    updateLockButtonUI(); 
+                    if (chatCache[chat.id]) renderMessages(chatCache[chat.id]); 
+                    joinRoom(chat.id); 
+                    loadHistory(chat.id); 
+                    socket.emit('mark_seen', { roomId: chat.id, userId: myName });
+                    document.querySelectorAll('.chat-tab').forEach(t=>t.classList.remove('active')); btn.classList.add('active');
+                };
+                const del = document.createElement('span');
+                del.className = 'del-chat-btn';
+                del.innerHTML = '🗑️';
+                del.onclick = async (e) => {
+                    e.stopPropagation();
+                    if(await window.confirm("Удалить чат навсегда?")) {
+                        await fetch(`${API_BASE}/x-api/chat-room-delete`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ roomId: chat.id }) });
+                        loadAllChats();
+                        if (currentActiveChat === chat.id) chatBox.innerHTML = '';
+                    }
+                };
+                container.appendChild(btn); 
+                container.appendChild(del); 
+                frag.appendChild(container);
+            });
+            adminPanel.appendChild(frag);
+        } catch(e){}
+    }
+    
+    function joinRoom(id) { if(socket.connected) socket.emit('join_room', id); }
+    function markAsRead(mid, rid) { socket.emit('message_read', { msgId: mid, roomId: rid }); }
+    
+    async function loadHistory(cid) {
+        if (!isAuthorized && localStorage.getItem('x_passkey_id')) return; 
+        try {
+            const res = await fetch(`${API_BASE}/x-api/chat-history?roomId=${cid}&limit=30`);
+            const msgs = await res.json();
+            chatCache[cid] = msgs; 
+            if(currentActiveChat === cid) {
+                renderMessages(msgs);
+                socket.emit('mark_seen', { roomId: cid, userId: myName });
+            }
+        } catch(e){}
+    }
+    
+    function renderMessages(msgs) {
+        const frag = document.createDocumentFragment();
+        msgs.forEach(m => { 
+            if (!m.text.startsWith('SYSTEM:')) m.text = decrypt(m.text);
+            const bubble = addBubble(m, m.user === myName ? 'mine' : 'theirs', false, true); 
+            if(bubble) frag.appendChild(bubble); 
+        });
+        
+        chatBox.appendChild(frag); 
+        fastScroll();
+    }
+
+    function addBubble(m, type, scroll = true, force = false) {
+        if (!force && m.id && document.getElementById(m.id)) return;
+        const div = document.createElement('div');
+        if (m.text && m.text.startsWith('SYSTEM:')) {
+            div.className = 'system-msg';
+            div.innerHTML = m.text.replace('SYSTEM:', '');
+            if(!force) { chatBox.appendChild(div); if (scroll) fastScroll(); }
+            return div;
+        }
+        div.className = `bubble ${type}`;
+        if (m.id) div.id = m.id;
+        let body = m.text;
+        
+        if (body === "🔐 [ЗАШИФРОВАНО]") {
+            body = `<span style="color:#666; font-style:italic;">🔐 Содержимое скрыто</span>`;
+        }
+
+        if (body.startsWith('/uploads/')) body = API_BASE + body;
+        if (m.isAudio) body = `<audio src="${body}" controls style="width:200px"></audio>`;
+        else if (m.isImage) body = `<img src="${body}" class="msg-img" onclick="openFullImg('${body}', event)">`;
+        let status = type === 'mine' ? `<span class="msg-status ${m.read?'read':''}">${m.read?'✓✓':'✓'}</span>` : '';
+        div.innerHTML = `<div>${body}</div><div class="msg-footer"><span class="msg-time">${m.time || getMskTime()}</span>${status}</div>`;
+        if(!force) { chatBox.appendChild(div); if (scroll) fastScroll(); }
+        return div;
+    }
+
+    function fastScroll() { chatBox.scrollTop = chatBox.scrollHeight; }
+    
+    async function sendMsg() {
+        const text = msgInput.value.trim(); if(!text) return;
+        if (chatLocks[currentActiveChat] && !titanMasterSecret) {
+            return window.alert("Сначала активируйте ключ (NFC или пароль)!");
+        }
+        msgInput.value = '';
+        
+        addBubble({ user:myName, text, time:getMskTime() }, 'mine');
+        const encryptedText = encrypt(text);
+        
+        const res = await fetch(`${API_BASE}/x-api/chat-send`, { 
+            method:'POST', 
+            headers:{'Content-Type':'application/json'}, 
+            body:JSON.stringify({roomId:currentActiveChat, user:myName, avatar:myAvatar, text: encryptedText, myChatId})
+        });
+        
+        const data = await res.json();
+        if (data.error === "GATE_LOCKED") {
+            window.alert("❌ Система Gate Keeper: Доступ ограничен. Ожидайте одобрения владельца.");
+            loadHistory(currentActiveChat); 
         }
     }
 
-    function poll() {
-        if (isConnected && isReady) {
-            sendOBD(commandQueue[cmdIdx]);
-            cmdIdx = (cmdIdx + 1) % commandQueue.length;
-            setTimeout(poll, 1000); // 1 сек - комфортно для 9600 и твоего Fusion [cite: 2026-01-20]
+    function getMskTime() { return new Date().toLocaleTimeString('ru-RU', {timeZone:'Europe/Moscow', hour:'2-digit', minute:'2-digit'}); }
+    function openFullImg(s,e) { e.stopPropagation(); document.getElementById('fullImgContent').src=s; document.getElementById('fullImgOverlay').style.display='flex'; }
+    function openSettings() { 
+        document.getElementById('setupOverlay').style.display='flex';
+        changeAuthStep(2); 
+        updateBiometricUI();
+    }
+    function insertEmoji(e) { msgInput.value += e; msgInput.focus(); }
+    
+    async function findUser() {
+        const searchValue = await window.prompt("Введите ник или номер телефона пользователя:", "Ник / Телефон..."); 
+        if(!searchValue || searchValue.trim()==="") return;
+        try {
+            const res = await fetch(`${API_BASE}/x-api/find-user`, {
+                method: 'POST', 
+                headers: { 'Content-Type': 'application/json' }, 
+                body: JSON.stringify({ myId: myChatId, searchNick: searchValue.trim() }) 
+            });
+            const d = await res.json();
+            if(d.success) { 
+                currentActiveChat = d.roomId; 
+                chatBox.innerHTML = ''; 
+                await loadAllChats(); 
+                loadHistory(d.roomId); 
+                window.alert(`✅ Связь установлена!\nНайден пользователь: ${d.targetNick}`);
+            } else {
+                window.alert(d.message || "Пользователь не найден.");
+            }
+        } catch(e){ window.alert("Ошибка связи с базой данных."); }
+    }
+    
+    async function toggleVoice() {
+        if (chatLocks[currentActiveChat] && !titanMasterSecret) return window.alert("Активируйте защиту!");
+        if(!isRecording) {
+            try {
+                const s = await navigator.mediaDevices.getUserMedia({audio:true});
+                mediaRecorder = new MediaRecorder(s); audioChunks=[];
+                mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
+                mediaRecorder.onstop = async () => {
+                    const b = new Blob(audioChunks, {type:'audio/webm'});
+                    const r = new FileReader();
+                    r.onloadend = async () => {
+                        const encryptedVoice = encrypt(r.result);
+                        await fetch(`${API_BASE}/x-api/chat-send`, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({roomId:currentActiveChat, user:myName, text: encryptedVoice, isAudio:true, myChatId})});
+                        loadHistory(currentActiveChat);
+                    }; r.readAsDataURL(b); s.getTracks().forEach(t=>t.stop());
+                }; mediaRecorder.start(); isRecording=true; startTimer(); voiceBtn.classList.add('recording');
+            } catch(e){ window.alert("Микрофон не обнаружен."); }
+        } else { mediaRecorder.stop(); isRecording=false; stopTimer(); voiceBtn.classList.remove('recording'); }
+    }
+    function startTimer() { let s=0; recTimer.style.display='block'; timerInterval=setInterval(()=>{ s++; recTimer.innerText=`${Math.floor(s/60).toString().padStart(2,'0')}:${(s%60).toString().padStart(2,'0')}`;}, 1000); }
+    function stopTimer() { clearInterval(timerInterval); recTimer.style.display='none'; }
+    
+    async function sendImage(input) {
+        if(!input.files[0]) return;
+        if (chatLocks[currentActiveChat] && !titanMasterSecret) return window.alert("Активируйте защиту!");
+        const r = new FileReader();
+        r.onload = async () => {
+            const encryptedImg = encrypt(r.result);
+            await fetch(`${API_BASE}/x-api/chat-send`, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({roomId:currentActiveChat, user:myName, text: encryptedImg, isImage:true, myChatId})});
+            loadHistory(currentActiveChat);
+        }; r.readAsDataURL(input.files[0]);
+    }
+    
+    document.getElementById('fileInput').onchange = (e) => {
+        const r = new FileReader(); r.onload=(ev)=>{ myAvatar=ev.target.result; document.getElementById('avatarPreview').style.backgroundImage=`url(${myAvatar})`; }; r.readAsDataURL(e.target.files[0]);
+    };
+
+    function updateBiometricUI() {
+        const container = document.getElementById('biometricStatus');
+        if (!container) return;
+        if (localStorage.getItem('x_passkey_id')) {
+            container.innerHTML = `<div style="color:#00ff00; font-size:14px; display:flex; align-items:center; justify-content:center; gap:5px;">✅ Системная защита активна</div>`;
+        } else {
+            container.innerHTML = `<button class="login-btn" style="background:#444; padding:8px 15px; font-size:12px;" onclick="registerPasskey()">ВКЛЮЧИТЬ PIN/ОТПЕЧАТОК</button>`;
         }
     }
 
-    function parseOBD(hex) {
-        hex = hex.replace(/\s+/g, '').toUpperCase();
-        // Скорость
-        if (hex.includes('410D')) {
-            let val = parseInt(hex.substr(hex.indexOf('410D')+4, 2), 16);
-            if (!isNaN(val)) document.getElementById('speedVal').innerText = val;
-        }
-        // Бак
-        if (hex.includes('412F')) {
-            let val = parseInt(hex.substr(hex.indexOf('412F')+4, 2), 16) / 255 * TANK_VOLUME;
-            if (!isNaN(val)) document.getElementById('fuelVal').innerText = val.toFixed(1);
-        }
-        // Расход
-        if (hex.includes('4110')) {
-            let val = (parseInt(hex.substr(hex.indexOf('4110')+4, 4), 16) / 100) * FUEL_MAGIC;
-            if (!isNaN(val)) document.getElementById('consVal').innerText = val.toFixed(1);
+    async function initBiometrics() {
+        const isAvailable = await window.PublicKeyCredential?.isUserVerifyingPlatformAuthenticatorAvailable();
+        if (isAvailable && localStorage.getItem('x_passkey_id')) {
+            setTimeout(loginWithPasskey, 1500);
         }
     }
+
+    async function registerPasskey() {
+        try {
+            const challenge = new Uint8Array(32);
+            window.crypto.getRandomValues(challenge);
+            const createOptions = {
+                publicKey: {
+                    challenge,
+                    rp: { name: "X-CONECT", id: window.location.hostname },
+                    user: { 
+                        id: Uint8Array.from(myName || "user", c => c.charCodeAt(0)), 
+                        name: myName, displayName: myName 
+                    },
+                    pubKeyCredParams: [{ alg: -7, type: "public-key" }],
+                    authenticatorSelection: { userVerification: "required" }, 
+                    timeout: 60000
+                }
+            };
+            const credential = await navigator.credentials.create(createOptions);
+            const credentialId = btoa(String.fromCharCode.apply(null, new Uint8Array(credential.rawId)));
+            localStorage.setItem('x_passkey_id', credentialId);
+            updateBiometricUI();
+            window.alert("✅ Устройство привязано к системе!");
+        } catch (err) { window.alert("Ошибка настройки защиты."); }
+    }
+
+    async function loginWithPasskey() {
+        let savedId = localStorage.getItem('x_passkey_id');
+        if (!savedId) return;
+        try {
+            const challenge = new Uint8Array(32);
+            window.crypto.getRandomValues(challenge);
+            const getOptions = {
+                publicKey: {
+                    challenge,
+                    allowCredentials: [{
+                        id: Uint8Array.from(atob(savedId), c => c.charCodeAt(0)),
+                        type: 'public-key'
+                    }],
+                    userVerification: "required", 
+                    timeout: 60000
+                }
+            };
+            const assertion = await navigator.credentials.get(getOptions);
+            if (assertion) {
+                isAuthorized = true; 
+                setupOverlay.style.display = 'none';
+                updateUI(); 
+                processInvite(); 
+            }
+        } catch (err) {
+            setupOverlay.style.display = 'flex';
+            changeAuthStep(3);
+        }
+    }
+
+    initBiometrics();
+
+    function makeQRFromInput() {
+        const text = document.getElementById('msgInput').value;
+        if(!text) return window.alert("Введите текст для кода!");
+        const qrOverlay = document.createElement('div');
+        qrOverlay.id = "qrOverlay";
+        qrOverlay.style = "position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.9); z-index:9999; display:flex; flex-direction:column; align-items:center; justify-content:center; color:white;";
+        qrOverlay.innerHTML = `<div style="background:white; padding:15px; border-radius:15px; border: 4px solid var(--gold);" id="qrcode"></div><button onclick="this.parentElement.remove()" style="margin-top:20px; padding:12px 25px; border-radius:10px; border:none; background:#e74c3c; color:white; cursor:pointer;">ЗАКРЫТЬ</button>`;
+        document.body.appendChild(qrOverlay);
+        new QRCode(document.getElementById("qrcode"), { text: text, width: 300, height: 300 });
+    }
+
+    function startScanner() {
+        const scannerOverlay = document.createElement('div');
+        scannerOverlay.id = "scannerOverlay";
+        scannerOverlay.style = "position:fixed; top:0; left:0; width:100%; height:100%; background:black; z-index:9999; display:flex; flex-direction:column;";
+        scannerOverlay.innerHTML = `<div id="reader" style="width:100%; flex-grow:1; position:relative;"></div><button onclick="stopAndCloseScanner()" style="padding:20px; background:#e74c3c; color:white; border:none; font-size:18px; font-weight:bold;">ОТМЕНА</button>`;
+        document.body.appendChild(scannerOverlay);
+        const html5QrCode = new Html5Qrcode("reader");
+        window.currentScanner = html5QrCode;
+        html5QrCode.start({ facingMode: "environment" }, { fps: 15, qrbox: { width: 250, height: 250 } }, (decodedText) => {
+            html5QrCode.stop().then(() => { scannerOverlay.remove(); showQRResult(decodedText); });
+        }).catch(err => { window.alert("Камера не найдена."); scannerOverlay.remove(); });
+    }
+
+    function showQRResult(text) {
+        const resDiv = document.createElement('div');
+        resDiv.style = "position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.95); z-index:10000; display:flex; flex-direction:column; align-items:center; justify-content:center; padding:20px;";
+        resDiv.innerHTML = `<div style="width:100%; max-width:350px; background:#111; border:1px solid var(--gold); border-radius:12px; padding:20px;"><textarea id="scanResultText" readonly style="width:100%; height:150px; background:#000; color:#0f0; border:1px solid #333; padding:10px; font-family:monospace;">${text}</textarea><button id="btnCopyOnly" style="width:100%; padding:15px; background:var(--gold); color:white; border:none; border-radius:8px; font-weight:bold; margin-top:20px;">?? СКОПИРОВАТЬ</button><button onclick="this.closest('div').parentElement.remove()" style="width:100%; margin-top:15px; color:#666; background:none; border:none;">Закрыть</button></div>`;
+        document.body.appendChild(resDiv);
+        document.getElementById('btnCopyOnly').onclick = () => { navigator.clipboard.writeText(text); window.alert("Скопировано!"); resDiv.remove(); };
+    }
+
+    function stopAndCloseScanner() { if(window.currentScanner) window.currentScanner.stop().then(() => { document.getElementById('scannerOverlay').remove(); }); }
+
+    async function nativeShareFile(input) {
+        const file = input.files[0]; if (!file) return;
+        if (navigator.canShare && navigator.canShare({ files: [file] })) {
+            try { await navigator.share({ files: [file], title: 'Титановый Файл' }); } catch (error) {}
+        } else { window.alert("Устройство не поддерживает Air-передачу."); }
+        input.value = '';
+    }
+
+    function changeAuthStep(step) {
+        document.querySelectorAll('.auth-step').forEach(el => el.classList.remove('active'));
+        const activeStep = document.getElementById('authStep' + step);
+        if(activeStep) activeStep.classList.add('active');
+    }
+
 </script>
 </body>
 </html>
