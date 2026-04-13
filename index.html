@@ -1,820 +1,162 @@
 <!DOCTYPE html>
-<html lang="ru">
+<html>
 <head>
     <meta charset="UTF-8">
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
-    <script src="https://unpkg.com/html5-qrcode"></script>
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <meta name="mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="theme-color" content="#0b0b0b">
-    
-    <title>X-CONECT</title>
-    <link rel="manifest" href="manifest.json">
-    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>X-CONECT: FORD PANEL</title>
     <style>
-        :root { 
-            --gold: #ff6600; 
-            --dark: #0b0b0b; 
-            --read-color: #4ea4f6;
-            --card-bg: #1a1a1a; 
-            --panel-bg: #111111;
-            --msg-mine: rgba(255, 102, 0, 0.25);
-            --msg-theirs: #222222;
-        }
-        
-        * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; outline: none; }
-        
-        html, body { 
-            height: 100%; margin: 0; padding: 0; 
-            background: var(--dark); 
-            overflow: hidden; position: fixed; width: 100%; 
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-            color: #fff; user-select: none;
-        }
-        
-        body { display: flex; flex-direction: column; background: radial-gradient(circle at top right, #1a1a1a, #0b0b0b); }
-
-        #xModalOverlay {
-            position: fixed; inset: 0; background: rgba(0,0,0,0.85); 
-            backdrop-filter: blur(10px); z-index: 10000; 
-            display: none; align-items: center; justify-content: center; 
-            animation: fadeIn 0.3s ease;
-        }
-        .x-modal {
-            width: 320px; background: #161616; border: 2px solid var(--gold); 
-            border-radius: 25px; padding: 30px; text-align: center; 
-            box-shadow: 0 0 50px rgba(255, 102, 0, 0.2);
-            transform: scale(0.9); transition: 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-        }
-        .x-modal.show { transform: scale(1); }
-        .x-modal-title { color: var(--gold); font-size: 18px; font-weight: 900; margin-bottom: 15px; letter-spacing: 2px; text-transform: uppercase; }
-        .x-modal-text { color: #ccc; font-size: 14px; line-height: 1.6; margin-bottom: 25px; }
-        .x-modal-input { 
-            width: 100%; background: #000; border: 1px solid #444; border-radius: 12px; 
-            padding: 14px; color: #fff; text-align: center; margin-bottom: 20px; font-size: 16px;
-        }
-        .x-modal-btns { display: flex; gap: 12px; justify-content: center; }
-        .x-btn { padding: 12px 20px; border-radius: 15px; border: none; font-weight: bold; cursor: pointer; transition: 0.2s; flex: 1; font-size: 13px; text-transform: uppercase; }
-        .x-btn-primary { background: var(--gold); color: white; box-shadow: 0 4px 15px rgba(255,102,0,0.4); }
-        .x-btn-secondary { background: #333; color: #aaa; }
-        .x-btn:active { transform: scale(0.95); }
-
-        #titanNfcModal {
-            position: fixed; inset: 0; background: rgba(0,0,0,0.95); 
-            z-index: 20000; display: none; align-items: center; justify-content: center;
-        }
-        .titan-box {
-            width: 340px; background: #000; border: 2px solid var(--gold); 
-            border-radius: 30px; padding: 40px 20px; text-align: center;
-            box-shadow: 0 0 60px var(--gold);
-        }
-        .titan-nfc-icon { width: 80px; margin-bottom: 20px; animation: pulse 2s infinite; }
-
-        .header { 
-            background: var(--card-bg); padding: 0 10px; 
-            display: flex; justify-content: space-between; align-items: center; 
-            border-bottom: 2px solid var(--gold); 
-            z-index: 100; flex-shrink: 0; height: 50px;
-        }
-        .header-menu { display: flex; align-items: center; gap: 2px; }
-
-        .lock-wrapper { position: relative; display: inline-block; height: 24px; }
-        .key-active-badge { 
-            position: absolute; top: -2px; right: -2px; 
-            background: #00ff00; color: #000; font-size: 8px; 
-            width: 14px; height: 14px; border-radius: 50%; 
-            display: none; align-items: center; justify-content: center; 
-            box-shadow: 0 0 8px #00ff00; font-weight: bold; z-index: 10;
-        }
-        .key-active-badge.show { display: flex; animation: fadeIn 0.3s ease; }
-        
-        #adminPanel { 
-            display: flex; background: var(--panel-bg); padding: 8px; 
-            overflow-x: auto; white-space: nowrap; border-bottom: 1px solid #333; 
-            gap: 10px; flex-shrink: 0; -webkit-overflow-scrolling: touch;
-        }
-        
-        .chat-tab-container { 
-            display: inline-flex; align-items: center; background: #2a2a2a; 
-            border-radius: 15px; padding-right: 8px; margin-right: 8px; 
-            border: 1px solid #444; position: relative; transition: all 0.3s ease;
-        }
-        .chat-tab { 
-            display: inline-flex; flex-direction: column; justify-content: center; align-items: flex-start;
-            padding: 6px 12px; border-radius: 15px; font-size: 13px; color: #888; 
-            cursor: pointer; min-height: 42px; 
-        }
-        .chat-tab.active { color: var(--gold); background: #3a2205; border: 1px solid var(--gold); }
-        
-        .tab-typing { 
-            font-size: 10px; color: var(--gold); display: none; margin-top: 2px; 
-            animation: pulse 1s infinite; font-weight: bold; text-shadow: 0 0 5px var(--gold);
-        }
-        
-        .del-chat-btn { 
-            color: #ff4444; font-size: 14px; cursor: pointer; 
-            padding: 0 5px; opacity: 0.6; transition: 0.3s; margin-left: 5px;
-        }
-        .del-chat-btn:hover { opacity: 1; transform: scale(1.2); }
-
-        .unread-badge { background: #ff3b30; color: white; border-radius: 50%; padding: 2px 6px; font-size: 10px; font-weight: bold; margin-left: 5px; display: none; }
-        .unread-badge.show { display: inline-block; }
-        
-        .status-dot { width: 10px; height: 10px; background: #444; border-radius: 50%; display: inline-block; margin-right: 5px; transition: background 0.3s, box-shadow 0.3s; }
-        .online { background: #00ff00; box-shadow: 0 0 10px #00ff00; }
-        .offline { background: #ff0000; box-shadow: 0 0 5px rgba(255,0,0,0.5); }
-        
-        .edit-btn { background: none; border: none; color: var(--gold); font-size: 18px; cursor: pointer; padding: 4px; margin-left: 2px; }
-
-        @keyframes lockPulse {
-            0% { transform: scale(1); text-shadow: 0 0 5px var(--gold); }
-            50% { transform: scale(1.1); text-shadow: 0 0 15px var(--gold); }
-            100% { transform: scale(1); text-shadow: 0 0 5px var(--gold); }
-        }
-        .lock-pulsing { animation: lockPulse 1.5s infinite ease-in-out; }
-
-        .messages { 
-            flex: 1; overflow-y: auto; padding: 15px; 
-            display: flex; flex-direction: column; gap: 12px; 
-            transform: translateZ(0); will-change: scroll-position;
-            scroll-behavior: smooth;
-        }
-        
-        .bubble { 
-            max-width: 85%; padding: 10px 14px; border-radius: 18px; 
-            font-size: 15px; line-height: 1.4; position: relative; 
-            display: flex; flex-direction: column; cursor: pointer;
-            border: 1px solid rgba(255, 255, 255, 0.1); 
-            box-shadow: 0 2px 5px rgba(0,0,0,0.3);
-            animation: msgIn 0.2s ease;
-        }
-
-        @keyframes msgIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
-        
-        .mine { align-self: flex-end; background: var(--msg-mine); color: #fff; border-bottom-right-radius: 2px; border-color: rgba(255, 102, 0, 0.4); }
-        .theirs { align-self: flex-start; background: var(--msg-theirs); color: #eee; border-bottom-left-radius: 2px; border: 1px solid rgba(255, 255, 255, 0.05); }
-        
-        .system-msg {
-            align-self: center; background: rgba(255, 255, 255, 0.08);
-            border: 1px solid rgba(255, 255, 255, 0.1); color: #aaa;
-            font-size: 12px; padding: 5px 15px; border-radius: 20px;
-            text-align: center; max-width: 90%; margin: 5px 0;
-            font-family: monospace; letter-spacing: 0.5px;
-        }
-
-        .msg-avatar { width: 28px; height: 28px; border-radius: 50%; background-size: cover; border: 1px solid var(--gold); margin-bottom: 4px; }
-        .msg-footer { display: flex; align-items: center; justify-content: flex-end; margin-top: 4px; gap: 4px; opacity: 0.7; }
-        .msg-time { font-size: 10px; font-weight: bold; }
-        
-        .msg-status { font-size: 14px; line-height: 10px; color: #555; transition: color 0.3s, text-shadow 0.3s; }
-        .msg-status.read { color: var(--read-color); text-shadow: 0 0 8px rgba(78, 164, 246, 0.6); }
-        
-        .msg-img { max-width: 100%; border-radius: 10px; margin-top: 5px; opacity: 0.95; background: #000; min-height: 50px; }
-
-        .bottom-nav { background: var(--card-bg); border-top: 1px solid #333; padding-bottom: env(safe-area-inset-bottom); flex-shrink: 0; position: relative;}
-        .emoji-bar { display: flex; justify-content: space-around; padding: 8px 10px; border-bottom: 1px solid #222; font-size: 22px; }
-        .input-area { padding: 10px; display: flex; gap: 6px; align-items: center; width: 100%; overflow: hidden; }
-        input#msgInput { flex: 1; min-width: 0; background: #000; border: 1px solid #444; padding: 10px 15px; border-radius: 25px; color: #fff; outline: none; font-size: 16px; }
-        .send-btn { background: var(--gold); border: none; width: 40px; height: 40px; border-radius: 50%; color: white; cursor: pointer; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
-        #voiceBtn.recording { background: #ff0000; animation: pulse 1s infinite; border: 2px solid white; }
-        #attachBtn { background: #222; border: 1px solid #444; }
-        
-        .rec-timer { 
-            font-size: 12px; color: #ff4444; text-align: center; font-weight: bold; 
-            display: none; position: absolute; top: -18px; left: 50%; transform: translateX(-50%); 
-        }
-
-        #callOverlay { position: fixed; inset: 0; background: rgba(0,0,0,0.85); z-index: 4000; display: none; align-items: center; justify-content: center; backdrop-filter: blur(5px); }
-        #callWindow {
-            position: absolute; width: 350px; background: #1a1a1a;
-            border: 2px solid var(--gold); border-radius: 20px; overflow: hidden;
-            display: flex; flex-direction: column; align-items: center;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.9);
-            top: 50%; left: 50%; transform: translate(-50%, -50%);
-        }
-        .drag-header { width: 100%; height: 40px; background: #2a2a2a; cursor: grab; display: flex; align-items: center; justify-content: center; border-bottom: 1px solid #444; color: #888; font-size: 12px; letter-spacing: 2px; touch-action: none; }
-        .drag-header:active { cursor: grabbing; background: var(--gold); color: black; }
-        
-        .video-container { width: 100%; height: 400px; position: relative; background: #000; display: flex; align-items: center; justify-content: center; }
-        #remoteVideo { width: 100%; height: 100%; object-fit: cover; }
-        #localVideo { position: absolute; bottom: 10px; right: 10px; width: 100px; height: 140px; background: #222; border: 2px solid #fff; border-radius: 10px; object-fit: cover; z-index: 2; transition: 0.3s; }
-        
-        #callStatus {
-            position: absolute; top: 15%; width: 100%; text-align: center; z-index: 5;
-            background: rgba(0,0,0,0.4); padding: 10px 0;
-        }
-        .call-user-name { font-size: 26px; font-weight: bold; color: white; text-shadow: 0 2px 5px #000; margin-top: 5px; animation: pulse 2s infinite; }
-        .call-type-label { font-size: 14px; letter-spacing: 2px; text-transform: uppercase; font-weight: bold; }
-
-        .call-controls-panel { padding: 15px; width: 100%; display: flex; justify-content: center; gap: 15px; background: #1a1a1a; flex-wrap: wrap; }
-        .call-avatar-large { width: 150px; height: 150px; border-radius: 50%; background: #333 center/cover; border: 4px solid var(--gold); animation: pulse 2s infinite; position: absolute; z-index: 1; display: none; }
-        
-        .call-btn { width: 60px; height: 60px; border-radius: 50%; border: none; color: white; font-size: 24px; cursor: pointer; display: flex; align-items: center; justify-content: center; z-index: 10; background: #333; box-shadow: 0 4px 10px #000; transition: 0.2s; }
-        .call-btn:active { transform: scale(0.9); }
-        .btn-accept { background: #00ff00; box-shadow: 0 0 15px rgba(0,255,0,0.5); } 
-        .btn-decline { background: #ff0000; box-shadow: 0 0 15px rgba(255,0,0,0.5); }
-        .btn-tool { border: 1px solid #555; width: 50px; height: 50px; font-size: 20px; }
-        .btn-tool.active { background: #fff; color: #000; }
-
-        #fullImgOverlay, #setupOverlay { position: fixed; inset: 0; background: #000; z-index: 4000; display: none; flex-direction: column; align-items: center; justify-content: center; }
-        #avatarPreview { width: 100px; height: 100px; border-radius: 50%; border: 2px solid var(--gold); margin-bottom: 25px; background: #222 center/cover; }
-        .elegant-input { width: 70%; background: none; border: none; border-bottom: 2px solid #333; color: #fff; padding: 10px; text-align: center; font-size: 18px; margin-bottom: 15px; }
-        .login-btn { border-radius: 20px; padding: 15px 35px; font-weight: bold; background: var(--gold); border: none; color: white; cursor: pointer; }
-        #fullImgOverlay img { max-width: 95%; max-height: 90%; border-radius: 10px; }
-
-        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
-        @keyframes pulse { 0% { opacity: 0.6; } 50% { opacity: 1; } 100% { opacity: 0.6; } }
-
-        .auth-step { display: none; width: 100%; flex-direction: column; align-items: center; animation: fadeIn 0.4s ease; }
-        .auth-step.active { display: flex; }
-        
-        .bio-scanner { width: 120px; height: 120px; border: 3px solid var(--gold); border-radius: 30px; margin-bottom: 25px; position: relative; overflow: hidden; cursor: pointer; background: url('https://img.icons8.com/ios/100/ff6600/fingerprint.png') no-repeat center/60%; box-shadow: 0 0 30px rgba(255, 102, 0, 0.2); }
-        .scan-line { width: 100%; height: 3px; background: var(--gold); position: absolute; top: 0; box-shadow: 0 0 15px var(--gold); animation: scanLoop 2s infinite linear; }
-        @keyframes scanLoop { 0% { top: 0; } 100% { top: 100%; } }
+        body { background: #000; color: #0f0; font-family: monospace; margin: 0; padding: 10px; text-align: center; }
+        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 20px; }
+        .card { border: 1px solid #333; padding: 15px; border-radius: 10px; background: #050505; }
+        .val { font-size: 2.5em; display: block; color: #0f0; }
+        .label { font-size: 0.8em; color: #00bcff; text-transform: uppercase; }
+        #log { height: 150px; overflow-y: auto; border: 1px solid #222; margin-top: 20px; font-size: 10px; text-align: left; padding: 5px; color: #666; }
+        button { background: transparent; border: 2px solid #0f0; color: #0f0; padding: 15px 30px; font-size: 1.2em; border-radius: 50px; cursor: pointer; width: 100%; }
+        button:active { background: #0f0; color: #000; }
+        .full-width { grid-column: span 2; }
     </style>
 </head>
 <body>
 
-    <div id="xModalOverlay">
-        <div class="x-modal" id="xModalBox">
-            <div class="x-modal-title" id="xModalTitle">X-SYSTEM</div>
-            <div class="x-modal-text" id="xModalText"></div>
-            <input type="text" id="xModalInput" class="x-modal-input" style="display:none;" placeholder="Введите...">
-            <div class="x-modal-btns">
-                <button class="x-btn x-btn-secondary" id="xBtnCancel" style="display:none;">ОТМЕНА</button>
-                <button class="x-btn x-btn-primary" id="xBtnOk">ПРИНЯТЬ</button>
-            </div>
-        </div>
+    <div id="header">
+        <h2 style="color: #ff3c00; margin: 5px;">X-CONECT PANEL</h2>
+        <button id="connectBtn">АКТИВИРОВАТЬ USB</button>
     </div>
 
-    <div id="titanNfcModal">
-        <div class="titan-box">
-            <img src="https://img.icons8.com/ios/100/ff6600/nfc-ring.png" class="titan-nfc-icon">
-            <div class="x-modal-title">🛰️ ТИТАНОВЫЙ КЛЮЧ</div>
-            <p id="titanStatus" style="color:#888; margin-bottom:20px;">Приложите метку или введите код</p>
-            <input type="password" id="titanInput" class="x-modal-input" placeholder="Код доступа...">
-            <div class="x-modal-btns" style="flex-wrap: wrap; gap: 10px;">
-                <button class="x-btn x-btn-secondary" onclick="closeTitanModal()">ОТМЕНА</button>
-                <button class="x-btn x-btn-primary" onclick="applyTitanFromInput()">ПРИНЯТЬ</button>
-            </div>
-        </div>
-    </div>
-
-    <audio id="dialTone" loop src="https://media.geeksforgeeks.org/wp-content/uploads/20190531135120/beep.mp3"></audio>
-    <audio id="ringTone" loop src="https://assets.mixkit.co/active_storage/sfx/1359/1359-preview.mp3"></audio>
-    <audio id="msgSound" src="https://assets.mixkit.co/active_storage/sfx/2346/2346-preview.mp3"></audio>
-
-    <div id="callOverlay">
-        <div id="callWindow">
-            <div id="dragHeader" class="drag-header">::: X-CALL :::</div>
-            
-            <div class="video-container">
-                <div class="call-avatar-large" id="callAvatarLarge"></div>
-                <video id="remoteVideo" autoplay playsinline></video>
-                <video id="localVideo" autoplay playsinline muted></video>
-                <div id="callStatus"></div>
-            </div>
-
-            <div class="call-controls-panel">
-                <div id="incomingControls" style="display:none; gap:25px;">
-                    <button class="call-btn btn-decline" onclick="rejectCall()">✖</button>
-                    <button class="call-btn btn-accept" onclick="answerCall()">📞</button>
-                </div>
-                <div id="activeControls" style="display:none; gap:15px; align-items:center;">
-                    <button id="camSwitchBtn" class="call-btn btn-tool" onclick="switchCamera()" title="Сменить камеру">🔄</button>
-                    <button id="speakerBtn" class="call-btn btn-tool" onclick="toggleSpeaker()" title="Громкая связь">🔊</button>
-                    <button class="call-btn btn-decline" onclick="endCall()">✖</button>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <div id="fullImgOverlay" onclick="this.style.display='none'"><img id="fullImgContent" src=""></div>
-
-    <div id="setupOverlay">
-        <h2 style="color:var(--gold); letter-spacing: 2px;">X-CONECT</h2>
-        
-        <div id="authStep1" class="auth-step active">
-            <p style="color:#888; margin-bottom:15px;">Титановый контроль доступа</p>
-            <div class="bio-scanner" onclick="startNfcLogin()" style="background: url('https://img.icons8.com/ios/100/ff6600/nfc-ring.png') no-repeat center/60%;">
-                <div class="scan-line" id="nfcScanLine" style="display:none;"></div>
-            </div>
-            <p id="nfcStatusText" style="color:var(--gold); font-size:14px; margin-bottom:15px; text-align:center;">Нажмите на радар и приложите ключ</p>
-            
-            <div id="manualUidFallback" style="display:none; width: 100%; text-align: center; margin-top:20px;">
-                <input type="text" id="manualUidInput" class="elegant-input" placeholder="Введите UID (для ПК)...">
-                <button class="login-btn" onclick="processLoginUid(document.getElementById('manualUidInput').value)">ВХОД</button>
-            </div>
-        </div>
-
-        <div id="authStep2" class="auth-step">
-            <p style="color:#00ff00; margin-bottom:15px;">Ключ подтвержден! Завершите настройку</p>
-            <div id="avatarPreview" onclick="document.getElementById('fileInput').click()"></div>
-            <input type="file" id="fileInput" style="display:none" accept="image/*">
-            <input type="text" id="nameInput" class="elegant-input" placeholder="Ник пользователя..." maxlength="15">
-            <input type="password" id="passInput" class="elegant-input" placeholder="Пароль системы..." maxlength="20">
-            
-            <div id="biometricStatus" style="margin-bottom: 20px;"></div>
-
-            <button onclick="writeTitanKeyToMTag()" style="width: 70%; background: #222; border: 1px solid var(--gold); color: var(--gold); padding: 10px; border-radius: 15px; margin-bottom: 20px; font-size: 12px; font-weight: bold;">🛠️ ПРОШИТЬ ПАРОЛЬ НА МЕТКУ</button>
-            <button id="loginBtn" class="login-btn" onclick="saveProfile()">СОХРАНИТЬ И ВОЙТИ</button>
-        </div>
-
-        <div id="authStep3" class="auth-step">
-            <p style="color:#888; margin-bottom:20px;">Защитите вход (Системный замок)</p>
-            <div class="bio-scanner" onclick="loginWithPasskey()" style="background: url('https://img.icons8.com/ios/100/ff6600/fingerprint.png') no-repeat center/60%;">
-                <div class="scan-line"></div>
-            </div>
-            <button class="login-btn" onclick="loginWithPasskey()">ВОЙТИ ПО СИСТЕМЕ</button>
-            <button style="background:none; border:none; color:var(--gold); margin-top:15px; text-decoration:underline;" onclick="changeAuthStep(1)">СМЕНИТЬ КЛЮЧ (NFC)</button>
-        </div>
-    </div>
-
-    <div class="header">
-        <div style="display: flex; align-items: center; gap: 5px;">
-            <span id="statusDot" class="status-dot"></span>
-            <b id="headerTitle" style="font-size: 14px;">X-CONECT</b>
-        </div>
-        <div class="header-menu">
-            <div class="lock-wrapper">
-                <div id="keyBadge" class="key-active-badge">✓</div>
-                <button id="lockBtn" class="edit-btn" onclick="handleSecureClick()" title="Титановая защита">🔓</button>
-            </div>
-            <button class="edit-btn" onclick="copyInviteLink()" title="Пригласить">🔗</button>
-            <button class="edit-btn" onclick="startCall('audio')" title="Аудио звонок">📞</button>
-            <button class="edit-btn" onclick="startCall('video')" title="Видео звонок">📹</button>
-            <button class="edit-btn" onclick="findUser()" title="Поиск">🔍</button>
-            <button class="edit-btn" onclick="openSettings()" title="Настройки">⚙️</button>
-            <button class="edit-btn" onclick="logout()" title="Выход">🚪</button>
-        </div>
-    </div>
-
-    <div id="adminPanel">
-        <div class="chat-tab-container" style="border:1px solid #9b51e0;"><div class="chat-tab" onclick="openGemmaAI()" style="color:#9b51e0;">🤖 GEMMA AI</div></div>
-    </div>
-
-    <div class="messages" id="chatBox"></div>
-
-    <div class="bottom-nav">
-        <div id="recTimer" class="rec-timer">00:00</div>
-        
-        <div class="offline-box" style="display: flex; justify-content: center; gap: 10px; padding: 5px; background: #111; border-bottom: 1px solid #333;">
-            <button onclick="makeQRFromInput()" style="background: #2c3e50; border: 1px solid #555; border-radius: 8px; padding: 6px 12px; color: white; font-size: 12px;">🔲 ТЕКСТ</button>
-            <input type="file" id="nativeFileInput" style="display:none" onchange="nativeShareFile(this)">
-            <button onclick="document.getElementById('nativeFileInput').click()" style="background: var(--gold); border: none; border-radius: 8px; padding: 6px 12px; color: white; font-size: 12px; font-weight:bold;">📤 ФАЙЛ (Air)</button>
-            <button onclick="startScanner()" style="background: #2c3e50; border: 1px solid #555; border-radius: 8px; padding: 6px 12px; color: white; font-size: 12px;">📷 ПРИНЯТЬ</button>
-        </div>
-
-        <div class="emoji-bar">
-            <span onclick="insertEmoji('❤️')">❤️</span><span onclick="insertEmoji('🔥')">🔥</span>
-            <span onclick="insertEmoji('🚀')">🚀</span><span onclick="insertEmoji('👍')">👍</span>
-            <span onclick="insertEmoji('😂')">😂</span><span onclick="insertEmoji('😎')">😎</span>
-            <span onclick="insertEmoji('🤝')">🤝</span><span onclick="insertEmoji('🦾')">🦾</span>
+    <div class="grid">
+        <div class="card full-width">
+            <span class="label">Общий пробег (ODO)</span>
+            <span id="odo" class="val">--- ---</span>
+            <span class="label">км</span>
         </div>
         
-        <div class="input-area">
-            <button id="attachBtn" class="send-btn" onclick="document.getElementById('msgFile').click()">+</button>
-            <input type="file" id="msgFile" style="display:none" accept="image/*" onchange="sendFile(this)">
-            <input type="text" id="msgInput" placeholder="Сообщение..." autocomplete="off">
-            <button id="voiceBtn" class="send-btn" style="background:#333;">🎤</button>
-            <button class="send-btn" onclick="sendMessage()">➤</button>
+        <div class="card">
+            <span class="label">Топливо</span>
+            <span id="fuel" class="val">--</span>
+            <span class="label">литров</span>
+        </div>
+
+        <div class="card">
+            <span class="label">Температура</span>
+            <span id="temp" class="val">--</span>
+            <span class="label">°C</span>
+        </div>
+
+        <div class="card">
+            <span class="label">Скорость</span>
+            <span id="speed" class="val">0</span>
+            <span class="label">км/ч</span>
+        </div>
+
+        <div class="card">
+            <span class="label">Расход</span>
+            <span id="rate" class="val">0.0</span>
+            <span class="label">л/ч</span>
         </div>
     </div>
+
+    <div id="log">Ожидание подключения ELS27...</div>
 
     <script>
-    // === ОРИГИНАЛЬНЫЙ СКРИПТ (БЕЗ УДАЛЕНИЙ) ===
-    let socket;
-    let myId = localStorage.getItem('myId') || 'user_' + Math.random().toString(36).substr(2, 9);
-    localStorage.setItem('myId', myId);
+        const logDiv = document.getElementById('log');
+        const connectBtn = document.getElementById('connectBtn');
+        let device;
+        let speeds = [2000000, 115200, 38400]; // Список скоростей для перебора
 
-    let myProfile = JSON.parse(localStorage.getItem('myProfile')) || null;
-    let chats = JSON.parse(localStorage.getItem('chats')) || {};
-    let activeChatId = null;
-    let peerConnection;
-    let localStream;
-    let isCalling = false;
-    let callType = 'video';
-    let encryptionKey = localStorage.getItem('encryptionKey') || 'TITAN-X-2026';
-    let titanKeyActivated = false;
-
-    const servers = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
-
-    window.onload = () => {
-        if (!myProfile) { document.getElementById('setupOverlay').style.display = 'flex'; }
-        else { checkTitanLockOnStart(); }
-        renderTabs();
-        initSocket();
-    };
-
-    function checkTitanLockOnStart() {
-        const lastAuth = localStorage.getItem('lastTitanAuth');
-        if (lastAuth && (Date.now() - lastAuth < 10 * 60 * 1000)) {
-            activateTitanMode();
-        } else {
-            document.getElementById('setupOverlay').style.display = 'flex';
-            changeAuthStep(3);
+        function log(msg) {
+            const time = new Date().toLocaleTimeString();
+            logDiv.innerHTML += `[${time}] ${msg}<br>`;
+            logDiv.scrollTop = logDiv.scrollHeight;
         }
-    }
 
-    function initSocket() {
-        socket = io('https://x-conect-server.onrender.com');
-        socket.on('connect', () => {
-            document.getElementById('statusDot').className = 'status-dot online';
-            socket.emit('register', { id: myId, profile: myProfile });
+        connectBtn.addEventListener('click', async () => {
+            try {
+                device = await navigator.usb.requestDevice({ filters: [{ vendorId: 0x0403, productId: 0x6001 }] });
+                await device.open();
+                log("ELS27 ОБНАРУЖЕН. ЗАПУСК АВТОПОДБОРА...");
+                
+                await device.selectConfiguration(1);
+                await device.claimInterface(0);
+
+                // Цикл перебора скоростей
+                for (let baud of speeds) {
+                    log(`Проверка скорости: ${baud}...`);
+                    await setupFTDI(baud);
+                    let response = await sendCommand("ATZ\r");
+                    if (response.includes("ELM") || response.includes("STN") || response.includes("OK")) {
+                        log(`СОЕДИНЕНИЕ УСТАНОВЛЕНО: ${baud} OK`);
+                        startPolling();
+                        return;
+                    }
+                }
+                log("ОШИБКА: Адаптер не отвечает. Проверь питание OBD.");
+            } catch (err) {
+                log("ОШИБКА USB: " + err);
+            }
         });
-        socket.on('disconnect', () => { document.getElementById('statusDot').className = 'status-dot offline'; });
-        socket.on('message', (data) => { receiveMessage(data); });
-        socket.on('offer', async (data) => { handleOffer(data); });
-        socket.on('answer', async (data) => { handleAnswer(data); });
-        socket.on('ice-candidate', async (data) => { handleCandidate(data); });
-        socket.on('call-rejected', () => { resetCallUI(); window.alert("Звонок отклонен"); });
-        socket.on('call-ended', () => { resetCallUI(); });
-        socket.on('typing', (data) => { showTypingInTab(data.from); });
-        socket.on('user-status', (data) => { updateTabStatus(data.userId, data.online); });
-    }
 
-    // --- ФУНКЦИЯ ДЛЯ НОВОЙ ВКЛАДКИ ---
-    function openGemmaAI() {
-        activeChatId = 'gemma_ai';
-        document.getElementById('chatBox').innerHTML = '<div class="system-msg">Канал связи с GEMMA AI защищен сквозным шифрованием.</div>';
-        document.getElementById('headerTitle').innerText = 'X-CONECT | GEMMA';
-        renderTabs();
-    }
-
-    // --- ОСТАЛЬНЫЕ ТВОИ ФУНКЦИИ (БЕЗ ИЗМЕНЕНИЙ) ---
-    function showXModal(title, text, isInput = false, onOk = null) {
-        const overlay = document.getElementById('xModalOverlay');
-        const input = document.getElementById('xModalInput');
-        document.getElementById('xModalTitle').innerText = title;
-        document.getElementById('xModalText').innerText = text;
-        input.style.display = isInput ? 'block' : 'none';
-        if (isInput) input.value = '';
-        overlay.style.display = 'flex';
-        document.getElementById('xModalBox').classList.add('show');
-        document.getElementById('xBtnOk').onclick = () => {
-            if (onOk) onOk(isInput ? input.value : true);
-            closeXModal();
-        };
-    }
-
-    function closeXModal() {
-        document.getElementById('xModalBox').classList.remove('show');
-        setTimeout(() => { document.getElementById('xModalOverlay').style.display = 'none'; }, 200);
-    }
-
-    function handleSecureClick() {
-        if (!titanKeyActivated) {
-            document.getElementById('titanNfcModal').style.display = 'flex';
-            startNfcTitanAuth();
-        } else {
-            showXModal("ЗАЩИТА", "Титановый протокол уже активен. Срок: 180 дней.");
-        }
-    }
-
-    async function startNfcTitanAuth() {
-        if (!('NDEFReader' in window)) {
-            document.getElementById('titanStatus').innerText = "NFC не поддерживается. Введите код:";
-            return;
-        }
-        try {
-            const reader = new NDEFReader();
-            await reader.scan();
-            document.getElementById('titanStatus').innerText = "СКАНИРОВАНИЕ... Приложите ключ";
-            reader.onreading = event => {
-                const uid = event.serialNumber;
-                processTitanKey(uid);
-            };
-        } catch (e) { document.getElementById('titanStatus').innerText = "Ошибка NFC. Используйте код:"; }
-    }
-
-    function processTitanKey(uid) {
-        if (uid) {
-            activateTitanMode();
-            closeTitanModal();
-            showXModal("СИСТЕМА", "Ключ TITAN подтвержден. Доступ открыт.");
-        }
-    }
-
-    function activateTitanMode() {
-        titanKeyActivated = true;
-        document.getElementById('lockBtn').innerText = '🛡️';
-        document.getElementById('lockBtn').classList.add('lock-pulsing');
-        document.getElementById('keyBadge').classList.add('show');
-        localStorage.setItem('lastTitanAuth', Date.now());
-    }
-
-    function closeTitanModal() { document.getElementById('titanNfcModal').style.display = 'none'; }
-
-    function applyTitanFromInput() {
-        const code = document.getElementById('titanInput').value;
-        if (code === "AXX-2026") { processTitanKey("MANUAL-UID"); }
-        else { window.alert("Неверный код доступа"); }
-    }
-
-    function startNfcLogin() {
-        document.getElementById('nfcScanLine').style.display = 'block';
-        if (!('NDEFReader' in window)) {
-            document.getElementById('nfcStatusText').innerText = "NFC не поддерживается на этом устройстве";
-            document.getElementById('manualUidFallback').style.display = 'block';
-            return;
-        }
-        const reader = new NDEFReader();
-        reader.scan().then(() => {
-            reader.onreading = event => { processLoginUid(event.serialNumber); };
-        }).catch(err => {
-            document.getElementById('nfcStatusText').innerText = "Ошибка доступа к NFC";
-            document.getElementById('manualUidFallback').style.display = 'block';
-        });
-    }
-
-    function processLoginUid(uid) {
-        if (!uid) return;
-        localStorage.setItem('titanUid', uid);
-        changeAuthStep(2);
-    }
-
-    function changeAuthStep(step) {
-        document.querySelectorAll('.auth-step').forEach(s => s.classList.remove('active'));
-        document.getElementById('authStep' + step).classList.add('active');
-    }
-
-    async function loginWithPasskey() {
-        activateTitanMode();
-        document.getElementById('setupOverlay').style.display = 'none';
-    }
-
-    function saveProfile() {
-        const name = document.getElementById('nameInput').value;
-        const pass = document.getElementById('passInput').value;
-        if (!name || !pass) return window.alert("Заполните имя и пароль!");
-        myProfile = { name, avatar: document.getElementById('avatarPreview').style.backgroundImage, pass };
-        localStorage.setItem('myProfile', JSON.stringify(myProfile));
-        localStorage.setItem('systemPass', pass);
-        loginWithPasskey();
-        if (socket) socket.emit('register', { id: myId, profile: myProfile });
-    }
-
-    document.getElementById('fileInput').onchange = function(e) {
-        const reader = new FileReader();
-        reader.onload = () => { document.getElementById('avatarPreview').style.backgroundImage = `url(${reader.result})`; };
-        reader.readAsDataURL(e.target.files[0]);
-    };
-
-    function renderTabs() {
-        const panel = document.getElementById('adminPanel');
-        const aiTab = panel.querySelector('.chat-tab-container'); // Сохраняем вкладку AI
-        panel.innerHTML = '';
-        if (aiTab) panel.appendChild(aiTab);
-
-        Object.keys(chats).forEach(id => {
-            const chat = chats[id];
-            const div = document.createElement('div');
-            div.className = 'chat-tab-container';
-            div.innerHTML = `
-                <div class="chat-tab ${activeChatId === id ? 'active' : ''}" onclick="selectChat('${id}')">
-                    <div style="display:flex; align-items:center;">
-                        <span id="dot-${id}" class="status-dot ${chat.online ? 'online' : 'offline'}"></span>
-                        <b>${chat.name}</b>
-                        <span id="badge-${id}" class="unread-badge ${chat.unread ? 'show' : ''}">${chat.unread}</span>
-                    </div>
-                    <div id="typing-${id}" class="tab-typing">Печатает...</div>
-                </div>
-                <span class="del-chat-btn" onclick="deleteChat('${id}')">×</span>
-            `;
-            panel.appendChild(div);
-        });
-    }
-
-    function selectChat(id) {
-        activeChatId = id;
-        chats[id].unread = 0;
-        document.getElementById('headerTitle').innerText = chats[id].name;
-        renderTabs();
-        renderMessages();
-    }
-
-    function deleteChat(id) {
-        if (confirm("Удалить чат?")) {
-            delete chats[id];
-            localStorage.setItem('chats', JSON.stringify(chats));
-            if (activeChatId === id) { activeChatId = null; document.getElementById('chatBox').innerHTML = ''; }
-            renderTabs();
-        }
-    }
-
-    function renderMessages() {
-        const box = document.getElementById('chatBox');
-        box.innerHTML = '';
-        if (!activeChatId || !chats[activeChatId]) return;
-        chats[activeChatId].messages.forEach(msg => {
-            const div = document.createElement('div');
-            div.className = `bubble ${msg.from === myId ? 'mine' : 'theirs'}`;
-            
-            let content = msg.text;
-            if (msg.type === 'image') content = `<img src="${msg.text}" class="msg-img" onclick="viewImage('${msg.text}')">`;
-            
-            div.innerHTML = `
-                <div>${content}</div>
-                <div class="msg-footer">
-                    <span class="msg-time">${msg.time}</span>
-                    ${msg.from === myId ? `<span class="msg-status ${msg.read ? 'read' : ''}">${msg.read ? '✓✓' : '✓'}</span>` : ''}
-                </div>
-            `;
-            box.appendChild(div);
-        });
-        box.scrollTop = box.scrollHeight;
-    }
-
-    function sendMessage() {
-        const input = document.getElementById('msgInput');
-        const text = input.value.trim();
-        if (!text || !activeChatId) return;
-
-        const msg = {
-            from: myId,
-            to: activeChatId,
-            text: text,
-            type: 'text',
-            time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-        };
-
-        if (activeChatId === 'gemma_ai') {
-            addMessageToChat('gemma_ai', msg);
-            input.value = '';
-            // Логика ответа AI может быть тут
-            return;
+        async function setupFTDI(baud) {
+            let divisor = Math.floor(3000000 / baud);
+            await device.controlTransferOut({
+                requestType: 'vendor', recipient: 'device', request: 0x03, value: divisor, index: 0
+            });
         }
 
-        socket.emit('message', msg);
-        addMessageToChat(activeChatId, msg);
-        input.value = '';
-    }
-
-    function receiveMessage(msg) {
-        if (!chats[msg.from]) {
-            chats[msg.from] = { name: msg.senderName || "Аноним", messages: [], online: true, unread: 0 };
+        async function sendCommand(cmd) {
+            let data = new TextEncoder().encode(cmd);
+            await device.transferOut(2, data);
+            let result = await device.transferIn(1, 64);
+            let text = new TextDecoder().decode(result.data);
+            return text;
         }
-        msg.read = (activeChatId === msg.from);
-        if (!msg.read) {
-            chats[msg.from].unread++;
-            document.getElementById('msgSound').play();
+
+        async function startPolling() {
+            // Начальная настройка
+            await sendCommand("ATE0\r"); // Выключить эхо
+            await sendCommand("ATL0\r"); // Выключить перенос строки
+            await sendCommand("ATSP0\r"); // Авто протокол
+
+            setInterval(async () => {
+                // Запрос скорости (010D)
+                let speedHex = await sendCommand("010D\r");
+                parseSpeed(speedHex);
+
+                // Запрос пробега (Тут PID может отличаться для твоего года, пробуем стандарт 0131)
+                let odoHex = await sendCommand("0131\r");
+                parseODO(odoHex);
+
+                // Запрос топлива (012F)
+                let fuelHex = await sendCommand("012F\r");
+                parseFuel(fuelHex);
+            }, 1000);
         }
-        addMessageToChat(msg.from, msg);
-        renderTabs();
-    }
 
-    function addMessageToChat(chatId, msg) {
-        if (!chats[chatId]) return;
-        chats[chatId].messages.push(msg);
-        localStorage.setItem('chats', JSON.stringify(chats));
-        if (activeChatId === chatId) renderMessages();
-    }
-
-    async function startCall(type) {
-        if (!activeChatId) return window.alert("Выберите чат!");
-        callType = type;
-        isCalling = true;
-        document.getElementById('callOverlay').style.display = 'flex';
-        document.getElementById('activeControls').style.display = 'flex';
-        document.getElementById('incomingControls').style.display = 'none';
-        document.getElementById('callStatus').innerHTML = `<div class="call-type-label">${type === 'video' ? 'ВИДЕОЗВЕНОК' : 'АУДИОЗВЕНОК'}</div><div class="call-user-name">${chats[activeChatId].name}</div>`;
-        
-        localStream = await navigator.mediaDevices.getUserMedia({ video: type === 'video', audio: true });
-        document.getElementById('localVideo').srcObject = localStream;
-        
-        peerConnection = new RTCPeerConnection(servers);
-        localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
-        
-        peerConnection.onicecandidate = e => { if (e.candidate) socket.emit('ice-candidate', { to: activeChatId, candidate: e.candidate }); };
-        peerConnection.ontrack = e => { document.getElementById('remoteVideo').srcObject = e.streams[0]; };
-        
-        const offer = await peerConnection.createOffer();
-        await peerConnection.setLocalDescription(offer);
-        socket.emit('offer', { to: activeChatId, offer, type, senderName: myProfile.name });
-        document.getElementById('dialTone').play();
-    }
-
-    async function handleOffer(data) {
-        document.getElementById('ringTone').play();
-        document.getElementById('callOverlay').style.display = 'flex';
-        document.getElementById('incomingControls').style.display = 'flex';
-        document.getElementById('activeControls').style.display = 'none';
-        document.getElementById('callStatus').innerHTML = `<div class="call-type-label">ВХОДЯЩИЙ ${data.type === 'video' ? 'ВИДЕО' : 'АУДИО'}</div><div class="call-user-name">${data.senderName}</div>`;
-        
-        activeChatId = data.from; 
-        window.currentOffer = data.offer;
-        callType = data.type;
-    }
-
-    async function answerCall() {
-        document.getElementById('ringTone').pause();
-        document.getElementById('incomingControls').style.display = 'none';
-        document.getElementById('activeControls').style.display = 'flex';
-        
-        localStream = await navigator.mediaDevices.getUserMedia({ video: callType === 'video', audio: true });
-        document.getElementById('localVideo').srcObject = localStream;
-        
-        peerConnection = new RTCPeerConnection(servers);
-        localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
-        
-        peerConnection.onicecandidate = e => { if (e.candidate) socket.emit('ice-candidate', { to: activeChatId, candidate: e.candidate }); };
-        peerConnection.ontrack = e => { document.getElementById('remoteVideo').srcObject = e.streams[0]; };
-        
-        await peerConnection.setRemoteDescription(new RTCSessionDescription(window.currentOffer));
-        const answer = await peerConnection.createAnswer();
-        await peerConnection.setLocalDescription(answer);
-        socket.emit('answer', { to: activeChatId, answer });
-    }
-
-    function rejectCall() {
-        document.getElementById('ringTone').pause();
-        socket.emit('reject-call', { to: activeChatId });
-        resetCallUI();
-    }
-
-    function endCall() {
-        socket.emit('end-call', { to: activeChatId });
-        resetCallUI();
-    }
-
-    function resetCallUI() {
-        document.getElementById('dialTone').pause();
-        document.getElementById('ringTone').pause();
-        if (localStream) localStream.getTracks().forEach(t => t.stop());
-        if (peerConnection) peerConnection.close();
-        document.getElementById('callOverlay').style.display = 'none';
-        isCalling = false;
-    }
-
-    async function handleAnswer(data) {
-        document.getElementById('dialTone').pause();
-        await peerConnection.setRemoteDescription(new RTCSessionDescription(data.answer));
-    }
-
-    async function handleCandidate(data) {
-        if (peerConnection) await peerConnection.addIceCandidate(new RTCIceCandidate(data.candidate));
-    }
-
-    function insertEmoji(e) { document.getElementById('msgInput').value += e; }
-    function logout() { if(confirm("Выйти?")) { localStorage.clear(); location.reload(); } }
-
-    function findUser() {
-        const id = prompt("Введите ID пользователя:");
-        if (id && id !== myId) {
-            chats[id] = { name: "Пользователь " + id.substr(0,4), messages: [], online: false, unread: 0 };
-            localStorage.setItem('chats', JSON.stringify(chats));
-            selectChat(id);
+        function parseSpeed(hex) {
+            // Простая логика: если в ответе есть цифры, парсим второй байт
+            let parts = hex.split(' ');
+            if (parts.length > 2) {
+                let val = parseInt(parts[2], 16);
+                document.getElementById('speed').innerText = val;
+            }
         }
-    }
 
-    function copyInviteLink() {
-        const link = `https://x-conect.pro/?invite=${myId}`;
-        navigator.clipboard.writeText(link).then(() => alert("Ссылка скопирована: " + link));
-    }
-
-    function openSettings() {
-        const newName = prompt("Ваше имя:", myProfile.name);
-        if (newName) {
-            myProfile.name = newName;
-            localStorage.setItem('myProfile', JSON.stringify(myProfile));
-            socket.emit('register', { id: myId, profile: myProfile });
-            alert("Сохранено!");
+        function parseFuel(hex) {
+            let parts = hex.split(' ');
+            if (parts.length > 2) {
+                let val = Math.round((parseInt(parts[2], 16) * 100) / 255); // Процент бака
+                let liters = Math.round((val * 52) / 100); // 52 литра — бак Фьюжена
+                document.getElementById('fuel').innerText = liters;
+            }
         }
-    }
 
-    function startScanner() {
-        const scannerDiv = document.createElement('div');
-        scannerDiv.id = "scannerOverlay";
-        scannerDiv.style = "position:fixed; inset:0; background:#000; z-index:5000; display:flex; flex-direction:column;";
-        scannerDiv.innerHTML = `<div id="qr-reader" style="flex:1;"></div><button onclick="stopAndCloseScanner()" style="padding:20px; background:red; color:white; border:none;">ЗАКРЫТЬ</button>`;
-        document.body.appendChild(scannerDiv);
-        const html5QrCode = new Html5Qrcode("qr-reader");
-        window.currentScanner = html5QrCode;
-        html5QrCode.start({ facingMode: "environment" }, { fps: 10, qrbox: 250 }, (text) => {
-            stopAndCloseScanner();
-            showScannedResult(text);
-        });
-    }
-
-    function showScannedResult(text) {
-        const resDiv = document.createElement('div');
-        resDiv.style = "position:fixed; inset:0; background:rgba(0,0,0,0.9); z-index:6000; display:flex; align-items:center; justify-content:center; padding:20px;";
-        resDiv.innerHTML = `<div style="background:#1a1a1a; padding:20px; border-radius:15px; width:100%; border:1px solid var(--gold);"><h3 style="color:var(--gold);">ПРИНЯТЫЕ ДАННЫЕ</h3><textarea style="width:100%; height:200px; background:#000; color:#fff; border:1px solid #333; padding:10px; font-family:monospace;">${text}</textarea><button id="btnCopyOnly" style="width:100%; padding:15px; background:var(--gold); color:white; border:none; border-radius:8px; font-weight:bold; margin-top:20px;">📋 СКОПИРОВАТЬ</button><button onclick="this.closest('div').parentElement.remove()" style="width:100%; margin-top:15px; color:#666; background:none; border:none;">Закрыть</button></div>`;
-        document.body.appendChild(resDiv);
-        document.getElementById('btnCopyOnly').onclick = () => { navigator.clipboard.writeText(text); window.alert("Скопировано!"); resDiv.remove(); };
-    }
-
-    function stopAndCloseScanner() { if(window.currentScanner) window.currentScanner.stop().then(() => { document.getElementById('scannerOverlay').remove(); }); }
-
-    async function nativeShareFile(input) {
-        const file = input.files[0]; if (!file) return;
-        if (navigator.canShare && navigator.canShare({ files: [file] })) {
-            try { await navigator.share({ files: [file], title: 'Титановый Файл' }); } catch (error) {}
-        } else { window.alert("Устройство не поддерживает Air-передачу."); }
-        input.value = '';
-    }
+        function parseODO(hex) {
+            // Логика для общего пробега
+            let parts = hex.split(' ');
+            if (parts.length > 4) {
+                let km = (parseInt(parts[2], 16) * 65536) + (parseInt(parts[3], 16) * 256) + parseInt(parts[4], 16);
+                document.getElementById('odo').innerText = km.toLocaleString();
+            }
+        }
     </script>
 </body>
 </html>
