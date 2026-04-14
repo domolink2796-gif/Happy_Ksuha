@@ -137,7 +137,6 @@
     let device;
     let isConnected = false;
     
-    // Очередь команд: Обороты, Температура, Скорость, MAF, Топливо, OBD Пробег, Ford Пробег
     let commandQueue = ['010C', '0105', '010D', '0110', '012F', '0131', '22DD01']; 
     let cmdIndex = 0;
     let buffer = '';
@@ -180,7 +179,6 @@
         writeLog("Суточный пробег сброшен");
     });
 
-    // --- ЛОГИКА USB ---
     els.connectBtn.addEventListener('click', async () => {
         try {
             device = await navigator.usb.requestDevice({ 
@@ -196,29 +194,26 @@
                 request: 0x03, value: 0x4138, index: 0x0000 
             });
 
-            els.status.innerText = "ПОДКЛЮЧЕНО: " + (device.productName || "АДАПТЕР");
+            els.status.innerText = "ПОДКЛЮЧЕНО";
             els.status.style.color = "var(--text-main)";
             els.connectBtn.style.display = "none";
             isConnected = true;
 
-            writeLog("USB подключен. Настройка адаптера...");
+            writeLog("USB OK. Инициализация протокола Ford...");
             startReading(); 
             
-            // ЖЕЛЕЗОБЕТОННАЯ ИНИЦИАЛИЗАЦИЯ ELS27 для FORD
-            await sendOBD("\r\r"); await sleep(300);
-            writeLog("Сброс (ATZ)...");
-            await sendOBD("ATZ"); await sleep(1500);
-
-            writeLog("Настройка протокола...");
-            await sendOBD("ATE0"); await sleep(300);
-            await sendOBD("ATH1"); await sleep(300); // Заголовки ВКЛ (для Ford 22DD01)
-            await sendOBD("ATAL"); await sleep(300); // Разрешить длинные сообщения
-            await sendOBD("ATSP6"); await sleep(1000); // Фиксируем FORD CAN (11/500)
-
+            // ЖЕСТКАЯ НАСТРОЙКА ЧТОБЫ НЕ ВИСЛО
+            await sendOBD("\r\r"); await sleep(200);
+            await sendOBD("ATZ"); await sleep(1000); // Сброс
+            await sendOBD("ATE0"); await sleep(200); // Эхо выкл
+            await sendOBD("ATH1"); await sleep(200); // Заголовки вкл
+            await sendOBD("ATSP6"); await sleep(500); // ФИКСАЦИЯ ПРОТОКОЛА CAN (11/500)
+            await sendOBD("ATCAF1"); await sleep(200); // Авто-формат CAN
+            
             writeLog("Синхронизация с ЭБУ...");
-            await sendOBD("0100"); await sleep(1000); 
+            await sendOBD("0100"); await sleep(800); 
 
-            writeLog("СИСТЕМА ГОТОВА. Старт...");
+            writeLog("СИСТЕМА ГОТОВА");
             pollCycle();
 
         } catch (err) {
@@ -250,7 +245,6 @@
                 }
             } catch (err) {
                 isConnected = false;
-                els.status.innerText = "СВЯЗЬ ПОТЕРЯНА";
                 break;
             }
         }
@@ -261,18 +255,15 @@
         let cmd = commandQueue[cmdIndex];
         sendOBD(cmd);
         cmdIndex = (cmdIndex + 1) % commandQueue.length;
-        setTimeout(pollCycle, 600); // Немного увеличил паузу для стабильности CAN
+        setTimeout(pollCycle, 600); 
     }
 
     function processResponse(hexStr) {
         hexStr = hexStr.replace(/\s+/g, '').toUpperCase();
         
-        // Если видим "SEARCHING" или "STOPPED", адаптер еще не зацепился
-        if (hexStr.includes('SEARCHING') || hexStr.includes('CANERROR')) {
-            return; 
-        }
+        if (hexStr.includes('SEARCHING') || hexStr.includes('CANERROR')) return;
 
-        // Обороты (010C)
+        // Обороты
         if (hexStr.includes('410C')) {
             let idx = hexStr.indexOf('410C') + 4;
             let a = parseInt(hexStr.substring(idx, idx + 2), 16);
@@ -280,14 +271,14 @@
             if (!isNaN(a) && !isNaN(b)) els.rpm.innerText = Math.round(((a * 256) + b) / 4);
         }
 
-        // Температура (0105)
+        // Температура
         if (hexStr.includes('4105')) {
             let idx = hexStr.indexOf('4105') + 4;
             let val = parseInt(hexStr.substring(idx, idx + 2), 16);
             if (!isNaN(val)) els.temp.innerText = val - 40;
         }
 
-        // Скорость (010D)
+        // Скорость
         if (hexStr.includes('410D')) {
             let idx = hexStr.indexOf('410D') + 4;
             let val = parseInt(hexStr.substring(idx, idx + 2), 16);
@@ -303,7 +294,7 @@
             }
         }
         
-        // Расход (MAF - 0110)
+        // MAF / Расход
         if (hexStr.includes('4110')) {
             let idx = hexStr.indexOf('4110') + 4;
             let maf = (parseInt(hexStr.substring(idx, idx + 4), 16)) / 100;
@@ -319,18 +310,17 @@
             }
         }
 
-        // Бак (012F)
+        // Бак
         if (hexStr.includes('412F')) {
             let idx = hexStr.indexOf('412F') + 4;
             let val = parseInt(hexStr.substring(idx, idx + 2), 16);
             if (!isNaN(val)) {
                 let liters = TANK_VOLUME * (val / 255);
                 els.fuel.innerText = liters.toFixed(1);
-                els.fuel.style.color = (liters < 7) ? "var(--text-warn)" : "var(--text-main)";
             }
         }
 
-        // Одометр (Ford Enhanced 22DD01)
+        // Одометр
         if (hexStr.includes('62DD01')) {
             let idx = hexStr.indexOf('62DD01') + 6;
             let val = parseInt(hexStr.substring(idx, idx + 6), 16);
