@@ -3,40 +3,40 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>X-CONECT: FUEL FINAL</title>
+    <title>X-CONECT: RE-STYLING 2008 FUEL</title>
     <style>
         body { background: #000; color: #0f0; font-family: monospace; margin: 0; padding: 10px; text-align: center; }
-        .fuel-box { border: 4px solid #00bcff; padding: 25px; border-radius: 20px; background: #050505; margin: 15px 0; }
-        .fuel-val { font-size: 5.5em; display: block; color: #00bcff; font-weight: bold; }
+        .fuel-box { border: 4px solid #00bcff; padding: 25px; border-radius: 20px; background: #050505; margin: 15px 0; box-shadow: 0 0 20px rgba(0, 188, 255, 0.2); }
+        .fuel-val { font-size: 6em; display: block; color: #00bcff; font-weight: bold; }
         .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
         .card { border: 1px solid #222; padding: 12px; border-radius: 10px; background: #080808; }
-        .val { font-size: 1.8em; display: block; color: #0f0; }
-        #log { height: 120px; overflow-y: auto; border: 1px solid #111; margin-top: 15px; font-size: 10px; text-align: left; padding: 8px; color: #444; }
-        button { background: #00bcff; border: none; color: #000; padding: 20px; font-size: 1.1em; border-radius: 12px; cursor: pointer; width: 100%; font-weight: bold; }
+        .val { font-size: 2em; display: block; color: #0f0; }
+        #log { height: 100px; overflow-y: auto; border: 1px solid #111; margin-top: 15px; font-size: 10px; text-align: left; padding: 8px; color: #555; }
+        button { background: #00bcff; border: none; color: #000; padding: 20px; font-size: 1.2em; border-radius: 12px; cursor: pointer; width: 100%; font-weight: bold; }
     </style>
 </head>
 <body>
 
-    <button id="connectBtn">ЗАПУСТИТЬ ПРЯМОЙ МОНИТОР</button>
+    <button id="connectBtn">ЗАПУСК: FORD 2008 RE-STYLING</button>
 
     <div class="fuel-box">
-        <span style="color: #00bcff; font-size: 0.9em;">ТОПЛИВО В БАКЕ (LIVE)</span>
+        <span style="color: #00bcff; font-size: 1em;">ОСТАТОК ТОПЛИВА</span>
         <span id="fuel" class="fuel-val">--</span>
-        <span style="color: #00bcff; font-size: 1.5em;">ЛИТРОВ</span>
+        <span style="color: #00bcff; font-size: 1.5em;">LITERS</span>
     </div>
 
     <div class="grid">
         <div class="card">
-            <span style="color:#666; font-size:0.7em;">МОТОР</span>
+            <span style="color:#666; font-size:0.7em;">ENGINE TEMP</span>
             <span id="temp" class="val">--</span>
         </div>
         <div class="card">
-            <span style="color:#666; font-size:0.7em;">ОБОРОТЫ</span>
+            <span style="color:#666; font-size:0.7em;">RPM LIVE</span>
             <span id="rpm" class="val">0</span>
         </div>
     </div>
 
-    <div id="log">Система X-CONECT готова...</div>
+    <div id="log">Ожидание 2008 RE-STYLING...</div>
 
     <script>
         const logDiv = document.getElementById('log');
@@ -57,15 +57,15 @@
                 let divisor = Math.floor(3000000 / 38400);
                 await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x03, value: divisor, index: 0 });
 
-                log("ПОДКЛЮЧЕНИЕ...");
+                log("РЕСТАЙЛИНГ ОБНАРУЖЕН...");
                 await send("ATZ");
                 await sleep(500);
                 await send("ATE0");
                 await send("ATSP6");
-                await send("ATH1"); 
+                await send("ATH0"); // Выключаем заголовки для скорости основных датчиков
 
                 isRunning = true;
-                fastLoop();
+                mainLoop();
             } catch (err) { log("ОШИБКА: " + err); }
         });
 
@@ -80,50 +80,42 @@
 
         function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
-        async function fastLoop() {
+        async function mainLoop() {
             let cycle = 0;
             while (isRunning) {
-                // 1. ОБОРОТЫ И ТЕМПЕРАТУРА (Опрашиваем быстро, без переключения заголовков)
-                // Обороты
-                let rRPM = await send("010C", 80);
+                // 1. ПЛАВНЫЕ ОБОРОТЫ И ТЕМПЕРАТУРА
+                let rRPM = await send("010C", 70);
                 if (rRPM.includes("410C")) {
                     let idx = rRPM.indexOf("410C") + 4;
                     document.getElementById('rpm').innerText = Math.round(((parseInt(rRPM.substr(idx, 2), 16) * 256) + parseInt(rRPM.substr(idx + 2, 2), 16)) / 4);
                 }
 
-                // Температура
-                let rTemp = await send("0105", 80);
+                let rTemp = await send("0105", 70);
                 if (rTemp.includes("4105")) {
                     document.getElementById('temp').innerText = (parseInt(rTemp.substr(rTemp.indexOf("4105") + 4, 2), 16) - 40) + "°C";
                 }
 
-                // 2. БЕНЗИН (Раз в 5 циклов, чтобы не тормозить обороты)
-                if (cycle % 5 === 0) {
-                    log("ЗАПРОС БАКА...");
-                    // Переключаемся на приборную панель (HEC)
-                    await send("ATSH720", 50); 
-                    
-                    // Попытка А: Основной PID Ford Fusion для бака
-                    let rFuel = await send("22042C", 200);
-                    if (rFuel.includes("62042C")) {
-                        let raw = parseInt(rFuel.substr(rFuel.indexOf("62042C") + 6, 2), 16);
-                        document.getElementById('fuel').innerText = Math.round((raw * 45) / 255);
+                // 2. БЕНЗИН (Спец-алгоритм для 2008 года)
+                if (cycle % 6 === 0) {
+                    // А: Пробуем расширенный Ford PID (самый точный для рестайла)
+                    let rFuel = await send("221106", 150); 
+                    if (rFuel.includes("621106")) {
+                        let hex = rFuel.substr(rFuel.indexOf("621106") + 6, 2);
+                        document.getElementById('fuel').innerText = Math.round(parseInt(hex, 16) / 2); // Обычно 0.5л на бит
                     } else {
-                        // Попытка Б: Альтернативный PID (часто в нем сидит уровень в литрах)
-                        let rFuel2 = await send("220461", 200);
-                        if (rFuel2.includes("620461")) {
-                            let raw2 = parseInt(rFuel2.substr(rFuel2.indexOf("620461") + 6, 2), 16);
-                            // Если значение > 100, значит это "сырой" сигнал, делим на 2
-                            let liters = raw2 > 60 ? Math.round(raw2 / 2.5) : raw2;
-                            document.getElementById('fuel').innerText = liters;
+                        // Б: Пробуем адрес приборки DE01
+                        await send("ATSH720", 50);
+                        let rFuel2 = await send("22DE01", 150);
+                        if (rFuel2.includes("62DE01")) {
+                            let hex2 = rFuel2.substr(rFuel2.indexOf("62DE01") + 6, 2);
+                            document.getElementById('fuel').innerText = Math.round(parseInt(hex2, 16) * 45 / 255);
                         }
+                        await send("ATSH7E0", 50); // Назад к мотору
                     }
-                    // Возвращаем заголовок на двигатель для оборотов
-                    await send("ATSH7E0", 50); 
                 }
 
                 cycle++;
-                await sleep(30); 
+                await sleep(20);
             }
         }
     </script>
