@@ -3,33 +3,44 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>X-CONECT: MEMORY DUMP ODO</title>
+    <title>X-CONECT: TITANIUM HYBRID</title>
     <style>
         body { background: #000; color: #0f0; font-family: monospace; margin: 0; padding: 10px; text-align: center; }
-        .card { border: 2px solid #ff3c00; padding: 25px; border-radius: 15px; background: #050505; margin: 15px 0; }
-        .val { font-size: 3em; display: block; color: #0f0; font-weight: bold; text-shadow: 0 0 10px #0f0; }
-        #log { height: 250px; overflow-y: auto; border: 1px solid #222; font-size: 10px; text-align: left; padding: 8px; color: #00bcff; background: #080808; }
-        button { background: #0f0; border: none; color: #000; padding: 20px; font-size: 1.2em; border-radius: 10px; cursor: pointer; width: 100%; font-weight: bold; }
+        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+        .card { border: 1px solid #333; padding: 15px; border-radius: 10px; background: #050505; }
+        .val { font-size: 2.5em; display: block; color: #0f0; font-weight: bold; }
+        .label { font-size: 0.8em; color: #00bcff; text-transform: uppercase; }
+        #log { height: 150px; overflow-y: auto; border: 1px solid #222; margin-top: 15px; font-size: 10px; text-align: left; padding: 8px; color: #666; background: #080808; }
+        button { background: #ff3c00; border: none; color: #fff; padding: 20px; font-size: 1.2em; border-radius: 10px; cursor: pointer; width: 100%; font-weight: bold; }
     </style>
 </head>
 <body>
 
-    <h2 style="color: #ff3c00; margin: 10px;">TITANIUM MEMORY SCAN</h2>
-    <button id="connectBtn">ДАМП ПАМЯТИ (SCAN)</button>
+    <button id="connectBtn">ЗАПУСК ГИБРИДНОГО МОНИТОРА</button>
 
-    <div class="card">
-        <span style="color: #0f0;">РЕЗУЛЬТАТ СКАНИРОВАНИЯ</span>
-        <span id="odo" class="val">ЖДУ...</span>
+    <div class="grid" style="margin-top:15px">
+        <div class="card" style="grid-column: span 2; border-color: #0f0;">
+            <span class="label">Одометр (ПЕРЕХВАТ)</span>
+            <span id="odo" class="val">ПОИСК...</span>
+        </div>
+        <div class="card">
+            <span class="label">Обороты</span>
+            <span id="rpm" class="val">0</span>
+        </div>
+        <div class="card">
+            <span class="label">Мотор</span>
+            <span id="temp" class="val">--</span>
+        </div>
     </div>
 
-    <div id="log">Запуск сканера...</div>
+    <div id="log">Система TITANIUM готова к пассивному анализу...</div>
 
     <script>
         const logDiv = document.getElementById('log');
-        let device;
+        let device, isRunning = false;
 
-        function log(msg, color = "#00bcff") {
-            logDiv.innerHTML += `<span style="color:${color}">> ${msg}</span><br>`;
+        function log(msg) {
+            logDiv.innerHTML += `> ${msg}<br>`;
             logDiv.scrollTop = logDiv.scrollHeight;
         }
 
@@ -43,58 +54,66 @@
                 let divisor = Math.floor(3000000 / 38400);
                 await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x03, value: divisor, index: 0 });
 
-                log("ПОДКЛЮЧЕНО. ВХОД В СЕРВИСНЫЙ РЕЖИМ...");
+                log("ПОДКЛЮЧЕНО. ВКЛЮЧАЮ РЕЖИМ СНИФФЕРА...");
                 await send("ATZ");
                 await sleep(500);
                 await send("ATE0");
                 await send("ATH1");
-                await send("ATSP6"); // CAN 500k
-                await send("ATSH720"); // Адрес приборки
+                await send("ATSP6"); // Стандартный CAN
                 
-                // Переход в расширенный сеанс (Level 3)
-                await send("1003"); 
-                await sleep(300);
-
-                runDump();
-            } catch (err) { log("ОШИБКА: " + err, "#f00"); }
+                isRunning = true;
+                mainTask();
+            } catch (err) { log("ОШИБКА: " + err); }
         });
 
-        async function send(cmd, wait = 400) {
+        async function send(cmd, wait = 150) {
             try {
                 await device.transferOut(2, new TextEncoder().encode(cmd + "\r"));
                 await sleep(wait);
                 let res = await device.transferIn(1, 128);
-                let txt = new TextDecoder().decode(res.data).replace(/\s/g, '').replace(/>/g, '');
-                log(`${cmd} -> ${txt}`);
-                return txt;
+                return new TextDecoder().decode(res.data).replace(/\s/g, '');
             } catch (e) { return ""; }
         }
 
         function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
-        async function runDump() {
-            // Пытаемся прочитать память напрямую (ReadMemoryByAddress)
-            // Формат: 23 [адрес 4 байта] [размер 1 байт]
-            const addresses = ["2000", "F000", "4000", "CE00"];
-            
-            for (let addr of addresses) {
-                log(`СКАНИРУЮ СЕКТОР ${addr}...`, "#888");
-                let res = await send("230000" + addr + "04", 600);
-                
-                if (res.includes("63")) {
-                    // Если получили 63... — это успех! Извлекаем HEX
-                    let hex = res.substr(res.indexOf("63") + 2, 8);
-                    let km = parseInt(hex, 16);
-                    
-                    if (km > 10000 && km < 1000000) {
-                        document.getElementById('odo').innerText = km.toLocaleString();
-                        log(`!!! ПРОБЕГ НАЙДЕН В ПАМЯТИ: ${km} !!!`, "#0f0");
-                        return;
+        async function mainTask() {
+            let count = 0;
+            while (isRunning) {
+                // 1. Читаем живые данные (которые точно работают)
+                let rRPM = await send("010C");
+                if (rRPM.includes("410C")) {
+                    let idx = rRPM.indexOf("410C") + 4;
+                    let a = parseInt(rRPM.substr(idx, 2), 16);
+                    let b = parseInt(rRPM.substr(idx + 2, 2), 16);
+                    document.getElementById('rpm').innerText = Math.round(((a * 256) + b) / 4);
+                }
+
+                if (count % 5 === 0) {
+                    let rTemp = await send("0105");
+                    if (rTemp.includes("4105")) {
+                        document.getElementById('temp').innerText = parseInt(rTemp.substr(rTemp.indexOf("4105") + 4, 2), 16) - 40 + "°C";
                     }
                 }
+
+                // 2. РЕЖИМ ПЕРЕХВАТА ПРОБЕГА (Слушаем шину 1 секунду)
+                // На Ford пробег часто пролетает в ID 4B0 или 080
+                log("ПЕРЕХВАТ ПАКЕТОВ...");
+                await send("ATMA", 800); // Мониторим шину короткое время
+                
+                // Чтобы не вешать интерфейс, мы просто периодически пробуем стандартный запрос
+                // но с другим заголовком (727 вместо 720)
+                await send("ATSH727"); 
+                let rOdo = await send("2204FE", 300);
+                if (rOdo.includes("62")) {
+                    let val = parseInt(rOdo.substr(rOdo.indexOf("62")+6, 6), 16);
+                    document.getElementById('odo').innerText = val.toLocaleString();
+                }
+                await send("ATSH7E0"); // Возврат к мотору
+
+                count++;
                 await sleep(200);
             }
-            log("ПАМЯТЬ ЗАБЛОКИРОВАНА. ПРОБУЕМ ПАССИВНЫЙ ПЕРЕХВАТ...", "#ff3c00");
         }
     </script>
 </body>
