@@ -1,113 +1,67 @@
 <!DOCTYPE html>
-<html lang="ru">
+<html>
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AXX-USB PRO-SCANNER</title>
+    <title>X-CONECT: DRIVE SCAN</title>
     <style>
-        body { background: #050505; color: #00ff41; font-family: 'Courier New', monospace; padding: 15px; }
-        .container { border: 1px solid #00ff41; padding: 20px; border-radius: 5px; max-width: 600px; margin: auto; background: #0a0a0a; }
-        .status-box { border-left: 4px solid #ff0000; padding: 10px; margin-bottom: 20px; background: #111; }
-        button { 
-            background: #00ff41; color: #000; border: none; padding: 15px; 
-            width: 100%; font-weight: bold; cursor: pointer; font-size: 16px; margin-bottom: 10px;
-        }
-        button:active { background: #008822; }
-        #console { 
-            background: #000; border: 1px solid #333; padding: 10px; 
-            height: 300px; overflow-y: auto; font-size: 12px; line-height: 1.4;
-        }
-        .warn { color: #ffae00; }
-        .err { color: #ff5555; }
-        .ok { color: #55ff55; }
+        body { background: #000; color: #00ff41; font-family: monospace; margin: 0; padding: 10px; text-align: center; }
+        .box { border: 4px solid #00ff41; padding: 25px; border-radius: 20px; background: #050505; margin: 15px 0; }
+        #log { height: 250px; overflow-y: auto; border: 1px solid #222; margin-top: 15px; font-size: 12px; text-align: left; padding: 10px; color: #0f0; background: #000; }
+        button { background: #00ff41; border: none; color: #000; padding: 20px; font-size: 1.1em; border-radius: 12px; cursor: pointer; width: 100%; font-weight: bold; text-transform: uppercase; }
+        .status { font-size: 1.5em; color: #fff; margin-bottom: 10px; display: block; }
     </style>
 </head>
 <body>
 
-<div class="container">
-    <h2 style="text-align: center; border-bottom: 1px solid #00ff41; padding-bottom: 10px;">X-CONECT USB INTERFACE</h2>
-    
-    <div class="status-box" id="status-border">
-        СТАТУС: <span id="status-text">ОЖИДАНИЕ</span>
+    <button id="connectBtn">ПОДКЛЮЧИТЬ УСТРОЙСТВО (ПОИСК)</button>
+
+    <div class="box">
+        <span class="status" id="stat">ОЖИДАНИЕ</span>
+        <span id="devName" style="color: #666;">Устройство не выбрано</span>
     </div>
 
-    <button id="scanBtn">СКАНИРОВАТЬ USB УСТРОЙСТВА</button>
-    
-    <div id="console">--- ИНИЦИАЛИЗАЦИЯ СИСТЕМЫ ---<br></div>
-</div>
+    <div id="log">Лог инициализации...</div>
 
-<script>
-    const scanBtn = document.getElementById('scanBtn');
-    const consoleDiv = document.getElementById('console');
-    const statusText = document.getElementById('status-text');
-    const statusBorder = document.getElementById('status-border');
+    <script>
+        const logDiv = document.getElementById('log');
+        let device;
 
-    function log(msg, type = '') {
-        const span = document.createElement('span');
-        span.className = type;
-        span.innerHTML = `[${new Date().toLocaleTimeString()}] ${msg}<br>`;
-        consoleDiv.appendChild(span);
-        consoleDiv.scrollTop = consoleDiv.scrollHeight;
-    }
-
-    function updateStatus(text, color) {
-        statusText.innerText = text;
-        statusBorder.style.borderColor = color;
-    }
-
-    scanBtn.addEventListener('click', async () => {
-        log("Запуск WebUSB сканера...");
-        
-        if (!navigator.usb) {
-            log("ОШИБКА: WebUSB не поддерживается этим браузером.", "err");
-            return;
+        function log(msg) {
+            logDiv.innerHTML += `> ${msg}<br>`;
+            logDiv.scrollTop = logDiv.scrollHeight;
         }
 
-        try {
-            // Пытаемся вызвать окно выбора без фильтров, чтобы увидеть ВСЕ устройства
-            log("Ожидание выбора устройства пользователем...");
-            const device = await navigator.usb.requestDevice({ filters: [] });
+        document.getElementById('connectBtn').addEventListener('click', async () => {
+            log("Запуск поиска всех USB устройств...");
+            try {
+                // В автомобильном файле стоял фильтр 0x0403
+                // Здесь мы убираем фильтры полностью, чтобы увидеть диск
+                device = await navigator.usb.requestDevice({ filters: [] });
+                
+                document.getElementById('devName').innerText = device.productName || "Unknown Device";
+                document.getElementById('stat').innerText = "НАЙДЕНО";
+                document.getElementById('stat').style.color = "#00ff41";
 
-            updateStatus("ПОДКЛЮЧЕНО", "#55ff55");
-            log(`УСТРОЙСТВО: ${device.productName || 'Неизвестное'}`, "ok");
-            log(`Vendor ID: ${device.vendorId}`);
-            log(`Product ID: ${device.productId}`);
-
-            await device.open();
-            log("USB Сессия открыта успешно.", "ok");
-
-            if (device.configuration === null) {
-                log("Конфигурация не задана, устанавливаем config(1)...");
+                log("Попытка открытия сессии...");
+                await device.open();
+                
+                log("Выбор конфигурации...");
                 await device.selectConfiguration(1);
+                
+                log("Захват интерфейса...");
+                await device.claimInterface(0);
+
+                log("УСПЕХ: Прямой доступ к железу диска получен.");
+                log("Vendor ID: " + device.vendorId);
+                log("Product ID: " + device.productId);
+                
+            } catch (err) { 
+                log("ОШИБКА: " + err); 
+                document.getElementById('stat').innerText = "ОШИБКА";
+                document.getElementById('stat').style.color = "#ff0000";
             }
-
-            log("Попытка захвата интерфейса...");
-            // Большинство HDD используют интерфейс 0
-            await device.claimInterface(0);
-            log("ИНТЕРФЕЙС ЗАХВАЧЕН!", "ok");
-            log("ВНИМАНИЕ: Для чтения NTFS файлов требуется программный драйвер JS.", "warn");
-            log("Железо ответило, прямой канал связи готов.");
-
-        } catch (err) {
-            updateStatus("ОШИБКА", "#ff5555");
-            if (err.name === 'NotFoundError') {
-                log("Устройство не выбрано или не найдено в списке.", "warn");
-            } else if (err.name === 'SecurityError') {
-                log("Блокировка безопасности! Проверь HTTPS или права браузера.", "err");
-            } else {
-                log(`СИСТЕМНАЯ ОШИБКА: ${err.message}`, "err");
-            }
-            console.error(err);
-        }
-    });
-
-    // Проверка наличия уже подключенных устройств
-    navigator.usb.getDevices().then(devices => {
-        if (devices.length > 0) {
-            log(`Найдено ранее сопряженных устройств: ${devices.length}`, "warn");
-        }
-    });
-</script>
-
+        });
+    </script>
 </body>
 </html>
