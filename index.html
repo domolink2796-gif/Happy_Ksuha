@@ -1,234 +1,172 @@
 <!DOCTYPE html>
-<html lang="ru">
+<html>
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>X-CONECT: Ford Fusion Panel</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>X-CONECT: FORD MOBILE</title>
     <style>
-        :root {
-            --bg-color: #000000;
-            --text-main: #00ff00;
-            --text-accent: #00bfff;
-            --text-warn: #ff4500;
-            --text-dim: #555555;
-        }
-        * { box-sizing: border-box; margin: 0; padding: 0; }
-        body { 
-            background-color: var(--bg-color); 
-            color: var(--text-main); 
-            font-family: 'Courier New', Courier, monospace; 
-            display: flex; 
-            flex-direction: column; 
-            height: 100vh; 
-            overflow: hidden;
-        }
-        header {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            padding: 10px;
-            border-bottom: 2px solid var(--text-dim);
-        }
-        button {
-            background-color: #111;
-            color: var(--text-main);
-            border: 2px solid var(--text-main);
-            padding: 15px 25px;
-            font-size: 18px;
-            font-weight: bold;
-            border-radius: 10px;
-            cursor: pointer;
-            margin-bottom: 5px;
-        }
-        .grid {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            flex-grow: 1;
-            padding: 10px;
-            gap: 10px;
-        }
-        .card {
-            border: 2px solid var(--text-dim);
-            border-radius: 10px;
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-            align-items: center;
-            padding: 10px;
-        }
-        .card-full { grid-column: span 2; }
-        .title { font-size: 14px; color: var(--text-accent); text-transform: uppercase; }
-        .value { font-size: 10vw; font-weight: bold; line-height: 1.1; }
-        .unit { font-size: 16px; color: var(--text-dim); }
-        #status { color: #888; font-size: 12px; text-align: center; width: 100%; }
-        #rawResponse { color: #555; font-size: 10px; margin-top: 5px; }
+        body { background: #000; color: #0f0; font-family: monospace; margin: 0; padding: 10px; text-align: center; overflow-x: hidden; }
+        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 20px; }
+        .card { border: 1px solid #333; padding: 15px; border-radius: 10px; background: #050505; box-shadow: 0 0 10px rgba(0,255,0,0.1); }
+        .val { font-size: 2.2em; display: block; color: #0f0; font-weight: bold; }
+        .label { font-size: 0.75em; color: #00bcff; text-transform: uppercase; letter-spacing: 1px; }
+        #log { height: 120px; overflow-y: auto; border: 1px solid #222; margin-top: 15px; font-size: 11px; text-align: left; padding: 8px; color: #888; background: #0a0a0a; }
+        button { background: #0f0; border: none; color: #000; padding: 18px; font-size: 1.1em; border-radius: 10px; cursor: pointer; width: 100%; font-weight: bold; margin-bottom: 10px; }
+        button:active { background: #00bcff; }
+        .full-width { grid-column: span 2; }
+        .unit { font-size: 0.4em; color: #555; margin-left: 5px; }
     </style>
 </head>
 <body>
 
-<header>
-    <button id="connectBtn">ПОДКЛЮЧИТЬ FORD (USB)</button>
-    <div id="status">ОЖИДАНИЕ...</div>
-    <div id="rawResponse">ОТВЕТ ЭБУ: ---</div>
-</header>
-
-<div class="grid">
-    <div class="card card-full">
-        <div class="title">Обороты</div>
-        <div class="value" id="rpmVal">0</div>
-        <div class="unit">RPM</div>
+    <div id="header">
+        <h2 style="color: #ff3c00; margin: 5px; letter-spacing: 2px;">X-CONECT SYSTEM</h2>
+        <button id="connectBtn">ПОДКЛЮЧИТЬ ELS27 (USB)</button>
     </div>
 
-    <div class="card">
-        <div class="title">Скорость</div>
-        <div class="value" id="speedVal">0</div>
-        <div class="unit">КМ/Ч</div>
+    <div class="grid">
+        <div class="card full-width">
+            <span class="label">Пробег (ODO)</span>
+            <span id="odo" class="val">--- ---</span>
+        </div>
+        
+        <div class="card">
+            <span class="label">Бак (Литры)</span>
+            <span id="fuel" class="val">--</span>
+        </div>
+
+        <div class="card">
+            <span class="label">Мотор (°C)</span>
+            <span id="temp" class="val">--</span>
+        </div>
+
+        <div class="card">
+            <span class="label">Скорость</span>
+            <span id="speed" class="val">0<small style="font-size: 0.5em"> км/ч</small></span>
+        </div>
+
+        <div class="card">
+            <span class="label">Обороты</span>
+            <span id="rpm" class="val">0</span>
+        </div>
     </div>
 
-    <div class="card">
-        <div class="title">Мотор</div>
-        <div class="value" id="tempVal">--</div>
-        <div class="unit">°C</div>
-    </div>
+    <div id="log">Ожидание USB соединения...</div>
 
-    <div class="card">
-        <div class="title">Бак</div>
-        <div class="value" id="fuelVal">--</div>
-        <div class="unit">ЛИТРОВ</div>
-    </div>
+    <script>
+        const logDiv = document.getElementById('log');
+        const connectBtn = document.getElementById('connectBtn');
+        let device;
+        const sleep = ms => new Promise(res => setTimeout(res, ms));
 
-    <div class="card">
-        <div class="title">Пробег (ЭБУ)</div>
-        <div class="value" style="font-size: 6vw;" id="odoVal">------</div>
-        <div class="unit">КМ</div>
-    </div>
-</div>
-
-<script>
-    const TANK_VOLUME = 45.0;
-    let device;
-    let isConnected = false;
-    let commandQueue = ['010C', '010D', '0105', '012F', '0131']; 
-    let cmdIndex = 0;
-    let buffer = '';
-
-    const els = {
-        status: document.getElementById('status'),
-        raw: document.getElementById('rawResponse'),
-        connectBtn: document.getElementById('connectBtn'),
-        rpm: document.getElementById('rpmVal'),
-        speed: document.getElementById('speedVal'),
-        temp: document.getElementById('tempVal'),
-        fuel: document.getElementById('fuelVal'),
-        odo: document.getElementById('odoVal')
-    };
-
-    els.connectBtn.addEventListener('click', async () => {
-        try {
-            device = await navigator.usb.requestDevice({ 
-                filters: [{ vendorId: 0x0403, productId: 0x6001 }] 
-            });
-
-            await device.open();
-            if (device.configuration === null) await device.selectConfiguration(1);
-            await device.claimInterface(0);
-
-            // Настройка FTDI (Baudrate 38400)
-            await device.controlTransferOut({
-                requestType: 'vendor', recipient: 'device',
-                request: 0x03, value: 0x4138, index: 0x0000 
-            });
-
-            els.status.innerText = "ПОДКЛЮЧЕНО: " + device.productName;
-            els.connectBtn.style.display = "none";
-            isConnected = true;
-
-            startReading();
-            
-            // Инициализация
-            await sendOBD("ATZ");
-            setTimeout(() => sendOBD("ATE0"), 1000);
-            setTimeout(() => sendOBD("ATSP6"), 1500); // Протокол Ford CAN
-            setTimeout(pollCycle, 2000);
-
-        } catch (err) {
-            els.status.innerText = "ОШИБКА: " + err.message;
+        function log(msg) {
+            const time = new Date().toLocaleTimeString();
+            logDiv.innerHTML += `[${time}] ${msg}<br>`;
+            logDiv.scrollTop = logDiv.scrollHeight;
         }
-    });
 
-    async function sendOBD(cmd) {
-        if (!isConnected) return;
-        const data = new TextEncoder().encode(cmd + '\r');
-        await device.transferOut(2, data);
-    }
-
-    async function startReading() {
-        while (isConnected) {
+        connectBtn.addEventListener('click', async () => {
             try {
-                const result = await device.transferIn(1, 64);
-                const text = new TextDecoder().decode(result.data);
-                buffer += text;
+                // Поиск FTDI чипа (ELS27)
+                device = await navigator.usb.requestDevice({ 
+                    filters: [{ vendorId: 0x0403, productId: 0x6001 }] 
+                });
 
-                if (buffer.includes('>')) {
-                    let cleanResp = buffer.replace('>', '').trim();
-                    els.raw.innerText = "ОТВЕТ ЭБУ: " + cleanResp; // Видим ответ!
-                    processResponse(cleanResp);
-                    buffer = '';
-                }
+                await device.open();
+                log("USB УСТРОЙСТВО ПОДКЛЮЧЕНО");
+                
+                await device.selectConfiguration(1);
+                await device.claimInterface(0);
+
+                // Настройка скорости 38400 (самая стабильная для первой инициализации)
+                await setupFTDI(38400);
+                log("ELS27 ГОТОВ. ИНИЦИАЛИЗАЦИЯ...");
+                
+                await initELM();
             } catch (err) {
-                isConnected = false;
-                els.status.innerText = "СВЯЗЬ ПОТЕРЯНА";
-                break;
+                log("ОШИБКА: " + err);
+            }
+        });
+
+        async function setupFTDI(baud) {
+            let divisor = Math.floor(3000000 / baud);
+            await device.controlTransferOut({
+                requestType: 'vendor', recipient: 'device', request: 0x03, value: divisor, index: 0
+            });
+        }
+
+        async function sendCommand(cmd) {
+            try {
+                let data = new TextEncoder().encode(cmd + "\r");
+                await device.transferOut(2, data);
+                
+                await sleep(200); // Ожидание ответа от шины Ford
+                
+                let result = await device.transferIn(1, 64);
+                let text = new TextDecoder().decode(result.data);
+                return text.trim();
+            } catch (e) { return ""; }
+        }
+
+        async function initELM() {
+            await sendCommand("ATZ");    // Сброс
+            await sleep(500);
+            await sendCommand("ATE0");   // Эхо выкл
+            await sendCommand("ATH1");   // Заголовки вкл (для парсинга)
+            await sendCommand("ATSP0");  // Авто-протокол
+            log("ПРОТОКОЛ УСТАНОВЛЕН. ЧТЕНИЕ ДАННЫХ...");
+            startPolling();
+        }
+
+        function startPolling() {
+            setInterval(async () => {
+                // Скорость (PID 0D)
+                let resSpeed = await sendCommand("010D");
+                parseData(resSpeed, "410D", 'speed', 1);
+
+                // Обороты (PID 0C)
+                let resRPM = await sendCommand("010C");
+                parseRPM(resRPM);
+
+                // Температура (PID 05)
+                let resTemp = await sendCommand("0105");
+                parseData(resTemp, "4105", 'temp', 1, -40);
+
+                // Топливо (PID 2F)
+                let resFuel = await sendCommand("012F");
+                parseFuel(resFuel);
+            }, 1000);
+        }
+
+        function parseData(hex, pid, elementId, byteCount, offset = 0) {
+            let clean = hex.replace(/\s/g, '');
+            let index = clean.indexOf(pid);
+            if (index !== -1) {
+                let val = parseInt(clean.substr(index + 4, 2 * byteCount), 16) + offset;
+                document.getElementById(elementId).innerHTML = val + (elementId === 'speed' ? '<small style="font-size: 0.5em"> км/ч</small>' : '');
             }
         }
-    }
 
-    function pollCycle() {
-        if (!isConnected) return;
-        sendOBD(commandQueue[cmdIndex]);
-        cmdIndex = (cmdIndex + 1) % commandQueue.length;
-        // Замедлили до 800мс для стабильности
-        setTimeout(pollCycle, 800); 
-    }
-
-    function processResponse(hex) {
-        hex = hex.replace(/\s+/g, '').toUpperCase();
-        
-        // RPM (41 0C)
-        if (hex.includes('410C')) {
-            let i = hex.indexOf('410C') + 4;
-            let rpm = (parseInt(hex.substring(i, i+2), 16) * 256 + parseInt(hex.substring(i+2, i+4), 16)) / 4;
-            if (!isNaN(rpm)) els.rpm.innerText = Math.round(rpm);
+        function parseRPM(hex) {
+            let clean = hex.replace(/\s/g, '');
+            let index = clean.indexOf("410C");
+            if (index !== -1) {
+                let a = parseInt(clean.substr(index + 4, 2), 16);
+                let b = parseInt(clean.substr(index + 6, 2), 16);
+                let rpm = Math.round(((a * 256) + b) / 4);
+                document.getElementById('rpm').innerText = rpm;
+            }
         }
 
-        // Speed (41 0D)
-        if (hex.includes('410D')) {
-            let i = hex.indexOf('410D') + 4;
-            let spd = parseInt(hex.substring(i, i+2), 16);
-            if (!isNaN(spd)) els.speed.innerText = spd;
+        function parseFuel(hex) {
+            let clean = hex.replace(/\s/g, '');
+            let index = clean.indexOf("412F");
+            if (index !== -1) {
+                let raw = parseInt(clean.substr(index + 4, 2), 16);
+                let liters = Math.round((raw * 52) / 255); // Бак 52л
+                document.getElementById('fuel').innerText = liters;
+            }
         }
-
-        // Temp (41 05)
-        if (hex.includes('4105')) {
-            let i = hex.indexOf('4105') + 4;
-            let tmp = parseInt(hex.substring(i, i+2), 16) - 40;
-            if (!isNaN(tmp)) els.temp.innerText = tmp;
-        }
-
-        // Fuel (41 2F)
-        if (hex.includes('412F')) {
-            let i = hex.indexOf('412F') + 4;
-            let fuel = (parseInt(hex.substring(i, i+2), 16) / 255) * TANK_VOLUME;
-            if (!isNaN(fuel)) els.fuel.innerText = fuel.toFixed(1);
-        }
-
-        // Odo (41 31)
-        if (hex.includes('4131')) {
-            let i = hex.indexOf('4131') + 4;
-            let odo = parseInt(hex.substring(i, i+4), 16);
-            if (!isNaN(odo)) els.odo.innerText = odo;
-        }
-    }
-</script>
+    </script>
 </body>
 </html>
