@@ -3,14 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>X-CONECT: DIAGNOSTIC MODE</title>
+    <title>X-CONECT: DEBUG V2</title>
     <style>
         body { background: #000; color: #0f0; font-family: monospace; margin: 0; padding: 10px; text-align: center; }
         .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px; }
         .card { border: 1px solid #333; padding: 10px; border-radius: 8px; background: #050505; }
         .val { font-size: 1.8em; display: block; color: #0f0; font-weight: bold; }
         .label { font-size: 0.7em; color: #00bcff; text-transform: uppercase; }
-        #log { height: 250px; overflow-y: auto; border: 1px solid #444; margin-top: 15px; font-size: 11px; text-align: left; padding: 10px; color: #0f0; background: #050805; line-height: 1.4; }
+        #log { height: 300px; overflow-y: auto; border: 1px solid #444; margin-top: 15px; font-size: 11px; text-align: left; padding: 10px; color: #0f0; background: #050805; }
         .log-in { color: #aaa; } .log-out { color: #00ff00; font-weight: bold; } .log-err { color: #ff3c00; }
         button { background: #0f0; border: none; color: #000; padding: 15px; font-size: 1em; border-radius: 10px; cursor: pointer; width: 100%; font-weight: bold; }
         .full-width { grid-column: span 2; }
@@ -18,8 +18,8 @@
 </head>
 <body>
 
-    <h2 style="color: #ff3c00; margin: 5px;">X-CONECT DIAGNOSTIC</h2>
-    <button id="connectBtn">ЗАПУСТИТЬ МОНИТОР ШИНЫ</button>
+    <h2 style="color: #ff3c00; margin: 5px;">X-CONECT DIAGNOSTIC V2</h2>
+    <button id="connectBtn">ЗАПУСТИТЬ МОНИТОР</button>
 
     <div class="grid">
         <div class="card full-width">
@@ -32,7 +32,7 @@
         <div class="card"><span class="label">Обороты</span><span id="rpm" class="val">0</span></div>
     </div>
 
-    <div id="log">Ожидание подключения...</div>
+    <div id="log">Нажми "ЗАПУСТИТЬ"...</div>
 
     <script>
         const logDiv = document.getElementById('log');
@@ -46,7 +46,7 @@
             if (type === 'err') span.className = 'log-err';
             span.innerHTML = `[${new Date().toLocaleTimeString()}] ${msg}`;
             logDiv.appendChild(span);
-            if (logDiv.childNodes.length > 50) logDiv.removeChild(logDiv.firstChild);
+            if (logDiv.childNodes.length > 60) logDiv.removeChild(logDiv.firstChild);
             logDiv.scrollTop = logDiv.scrollHeight;
         }
 
@@ -60,11 +60,11 @@
                 let divisor = Math.floor(3000000 / 38400);
                 await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x03, value: divisor, index: 0 });
 
-                log("ПОДКЛЮЧЕНО. СБРОС АДАПТЕРА...");
+                log("ИНИЦИАЛИЗАЦИЯ...");
                 await talk("ATZ");
                 await talk("ATE0");
-                await talk("ATSP6"); 
                 await talk("ATH1");
+                await talk("ATSP6"); // Ставим CAN (HS)
                 
                 isRunning = true;
                 mainLoop();
@@ -75,15 +75,12 @@
             try {
                 log(`SEND: ${cmd}`, 'in');
                 await device.transferOut(2, new TextEncoder().encode(cmd + "\r"));
-                await sleep(200);
+                await sleep(300); // Увеличил паузу, чтобы ты видел лог
                 let res = await device.transferIn(1, 128);
                 let text = new TextDecoder().decode(res.data).replace(/\s/g, '').replace(/>/g, '');
                 log(`RECV: ${text || 'EMPTY'}`, 'out');
                 return text;
-            } catch (e) { 
-                log(`FAIL: ${cmd}`, 'err');
-                return ""; 
-            }
+            } catch (e) { return ""; }
         }
 
         function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
@@ -91,45 +88,38 @@
         async function mainLoop() {
             let step = 0;
             while (isRunning) {
-                // ПРИОРИТЕТ 1: Скорость и Обороты
+                // 1. ОБОРОТЫ
                 let rRPM = await talk("010C");
                 if (rRPM.includes("410C")) {
-                    let a = parseInt(rRPM.substr(rRPM.indexOf("410C")+4, 2), 16);
-                    let b = parseInt(rRPM.substr(rRPM.indexOf("410C")+6, 2), 16);
+                    let idx = rRPM.indexOf("410C") + 4;
+                    let a = parseInt(rRPM.substr(idx, 2), 16);
+                    let b = parseInt(rRPM.substr(idx + 2, 2), 16);
                     document.getElementById('rpm').innerText = Math.round(((a * 256) + b) / 4);
                 }
 
+                // 2. СКОРОСТЬ
                 let rSpeed = await talk("010D");
                 if (rSpeed.includes("410D")) {
-                    document.getElementById('speed').innerText = parseInt(rSpeed.substr(rSpeed.indexOf("410D")+4, 2), 16);
+                    document.getElementById('speed').innerText = parseInt(rSpeed.substr(rSpeed.indexOf("410D") + 4, 2), 16);
                 }
 
-                // ПРИОРИТЕТ 2: Диагностика проблемных зон
-                if (step % 5 === 0) {
-                    // Проверка Одометра (Перебор)
-                    let odoRes = await talk("2204FE");
-                    if (!odoRes.includes("62")) odoRes = await talk("22DD01");
-                    if (!odoRes.includes("62")) odoRes = await talk("0131"); // Еще один стандартный PID
+                // 3. ТЕМПЕРАТУРА (Добавил!)
+                let rTemp = await talk("0105");
+                if (rTemp.includes("4105")) {
+                    document.getElementById('temp').innerText = parseInt(rTemp.substr(rTemp.indexOf("4105") + 4, 2), 16) - 40;
+                }
 
-                    if (odoRes.includes("62") || odoRes.includes("4131")) {
-                        let hex = odoRes.match(/[0-9A-F]{6,8}/);
-                        if (hex) document.getElementById('odo').innerText = parseInt(hex[0], 16).toLocaleString();
-                    }
-
-                    // Проверка Топлива (Перебор)
-                    let fuelRes = await talk("220461");
-                    if (!fuelRes.includes("62")) fuelRes = await talk("220506");
-                    if (!fuelRes.includes("62")) fuelRes = await talk("012F");
-
-                    if (fuelRes.includes("62") || fuelRes.includes("412F")) {
-                        let fHex = fuelRes.substr(fuelRes.length - 2, 2);
-                        let fVal = parseInt(fHex, 16);
-                        document.getElementById('fuel').innerText = Math.round((fVal * 45) / 255);
-                    }
+                // 4. ТЕСТ ПРОБЕГА И БАКА (раз в 10 циклов)
+                if (step % 10 === 0) {
+                    log("--- ТЕСТ СЕРВИСНЫХ ДАННЫХ ---", 'err');
+                    await talk("2204FE"); // Одометр вариант 1
+                    await talk("22DD01"); // Одометр вариант 2
+                    await talk("220461"); // Бак вариант 1
+                    await talk("012F");   // Бак вариант 2
                 }
 
                 step++;
-                await sleep(100);
+                await sleep(200);
             }
         }
     </script>
