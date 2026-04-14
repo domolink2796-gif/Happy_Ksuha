@@ -3,11 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>X-CONECT: FORD PRO</title>
+    <title>X-CONECT: FORD PRO FINAL</title>
     <style>
         body { background: #000; color: #0f0; font-family: monospace; margin: 0; padding: 10px; text-align: center; }
         .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 15px; }
-        .card { border: 1px solid #333; padding: 15px; border-radius: 10px; background: #050505; }
+        .card { border: 1px solid #333; padding: 15px; border-radius: 10px; background: #050505; position: relative; overflow: hidden; }
         .val { font-size: 2.2em; display: block; color: #0f0; font-weight: bold; }
         .label { font-size: 0.75em; color: #00bcff; text-transform: uppercase; }
         #log { height: 100px; overflow-y: auto; border: 1px solid #222; margin-top: 15px; font-size: 10px; text-align: left; padding: 5px; color: #666; background: #080808; }
@@ -22,11 +22,11 @@
 
     <div class="grid">
         <div class="card full-width">
-            <span class="label">Одометр</span>
+            <span class="label">Одометр (Пробег)</span>
             <span id="odo" class="val">--- ---</span>
         </div>
         <div class="card">
-            <span class="label">Бензин (Л)</span>
+            <span class="label">Бензин (Литры)</span>
             <span id="fuel" class="val">--</span>
         </div>
         <div class="card">
@@ -82,7 +82,8 @@
                 await device.transferOut(2, new TextEncoder().encode(cmd + "\r"));
                 await sleep(150);
                 let res = await device.transferIn(1, 128);
-                return new TextDecoder().decode(res.data).replace(/\s/g, '');
+                let text = new TextDecoder().decode(res.data).replace(/\s/g, '');
+                return text;
             } catch (e) { return ""; }
         }
 
@@ -92,7 +93,7 @@
             let slowDataCounter = 0;
             
             while (isRunning) {
-                // 1. ОБОРОТЫ
+                // 1. ОБОРОТЫ (Высокий приоритет)
                 let rRPM = await send("010C");
                 if (rRPM.includes("410C")) {
                     let idx = rRPM.indexOf("410C") + 4;
@@ -101,7 +102,7 @@
                     document.getElementById('rpm').innerText = Math.round(((a * 256) + b) / 4);
                 }
 
-                // 2. СКОРОСТЬ
+                // 2. СКОРОСТЬ (Высокий приоритет)
                 let rSpeed = await send("010D");
                 if (rSpeed.includes("410D")) {
                     let sIdx = rSpeed.indexOf("410D") + 4;
@@ -109,34 +110,42 @@
                     if (!isNaN(sVal)) document.getElementById('speed').innerText = sVal;
                 }
 
-                // 3. ТЕМПЕРАТУРА (раз в 3 цикла)
-                if (slowDataCounter % 3 === 0) {
+                // 3. ТЕМПЕРАТУРА (Средний приоритет)
+                if (slowDataCounter % 5 === 0) {
                     let rTemp = await send("0105");
                     if (rTemp.includes("4105")) {
                         document.getElementById('temp').innerText = parseInt(rTemp.substr(rTemp.indexOf("4105") + 4, 2), 16) - 40;
                     }
                 }
 
-                // 4. ТЯЖЕЛЫЕ ДАННЫЕ (Бак и Одометр - раз в 10 циклов)
-                if (slowDataCounter % 10 === 0) {
-                    // Пробуем два варианта для Бака (Бак 45 л)
-                    let rFuel = await send("22042C");
-                    if (!rFuel.includes("62042C")) rFuel = await send("220461"); 
+                // 4. ТЯЖЕЛЫЕ ДАННЫЕ (Бак и Одометр - раз в 15 циклов)
+                if (slowDataCounter % 15 === 0) {
+                    // --- БЕНЗИН (Бак 45 л) ---
+                    // Пробуем 220461 (HEC/Приборка) или 22042C (PCM)
+                    let rFuel = await send("220461");
+                    if (!rFuel.includes("620461")) rFuel = await send("22042C");
                     
                     if (rFuel.includes("62")) {
                         let fRaw = parseInt(rFuel.substr(rFuel.indexOf("62")+6, 2), 16);
-                        if (!isNaN(fRaw)) document.getElementById('fuel').innerText = Math.round((fRaw * 45) / 255);
+                        if (!isNaN(fRaw)) {
+                            // Формула для Ford: (байт / 255) * объем бака
+                            document.getElementById('fuel').innerText = Math.round((fRaw * 45) / 255);
+                        }
                     }
 
-                    // Пробуем два варианта для Одометра
-                    let rOdo = await send("2204FE");
-                    if (!rOdo.includes("6204FE")) rOdo = await send("22DD01");
+                    // --- ОДОМЕТР (Общий пробег) ---
+                    // Для Fusion часто срабатывает 22DD01 или 220DD4
+                    let rOdo = await send("22DD01");
+                    if (!rOdo.includes("62DD01")) rOdo = await send("220DD4");
 
                     if (rOdo.includes("62")) {
                         let oIdx = rOdo.indexOf("62") + 6;
-                        let oHex = rOdo.substr(oIdx, 6);
+                        // Пробег обычно занимает 3-4 байта (6-8 символов)
+                        let oHex = rOdo.substr(oIdx, 6); 
                         let oVal = parseInt(oHex, 16);
-                        if (!isNaN(oVal)) document.getElementById('odo').innerText = oVal.toLocaleString();
+                        if (!isNaN(oVal) && oVal > 0) {
+                            document.getElementById('odo').innerText = oVal.toLocaleString();
+                        }
                     }
                 }
 
