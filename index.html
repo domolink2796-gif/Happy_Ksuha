@@ -3,27 +3,27 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>X-CONECT: ODO FORCE SNIFFER</title>
+    <title>X-CONECT: TITANIUM DEEP SCAN</title>
     <style>
         body { background: #000; color: #0f0; font-family: monospace; margin: 0; padding: 10px; text-align: center; }
-        .card { border: 2px solid #ff3c00; padding: 25px; border-radius: 15px; background: #050505; margin: 15px 0; box-shadow: 0 0 20px rgba(255,60,0,0.2); }
-        .val { font-size: 3em; display: block; color: #0f0; font-weight: bold; text-shadow: 0 0 10px #0f0; }
+        .card { border: 2px solid #ff3c00; padding: 25px; border-radius: 15px; background: #050505; margin: 15px 0; }
+        .val { font-size: 3.2em; display: block; color: #0f0; font-weight: bold; text-shadow: 0 0 10px #0f0; }
         .label { font-size: 1em; color: #00bcff; text-transform: uppercase; }
-        #log { height: 250px; overflow-y: auto; border: 1px solid #222; font-size: 10px; text-align: left; padding: 8px; color: #555; background: #080808; }
+        #log { height: 200px; overflow-y: auto; border: 1px solid #222; font-size: 10px; text-align: left; padding: 8px; color: #555; background: #080808; }
         button { background: #0f0; border: none; color: #000; padding: 20px; font-size: 1.2em; border-radius: 10px; cursor: pointer; width: 100%; font-weight: bold; }
     </style>
 </head>
 <body>
 
-    <h2 style="color: #ff3c00; margin: 10px;">TITANIUM ODO SNIFFER</h2>
-    <button id="connectBtn">ЗАПУСТИТЬ ГЛУБОКИЙ ПОИСК</button>
+    <h2 style="color: #ff3c00; margin: 10px;">TITANIUM ODO FORCE</h2>
+    <button id="connectBtn">АКТИВИРОВАТЬ ГЛУБОКИЙ ПЕРЕХВАТ</button>
 
     <div class="card">
-        <span class="label">ОДОМЕТР (ПОИСК В ПОТОКЕ)</span>
-        <span id="odo" class="val">--- ---</span>
+        <span class="label">РЕАЛЬНЫЙ ПРОБЕГ (ИЗ ШИНЫ)</span>
+        <span id="odo" class="val">ЖДУ ПАКЕТ...</span>
     </div>
 
-    <div id="log">Инициализация монитора...</div>
+    <div id="log">Подключите USB и включите зажигание...</div>
 
     <script>
         const logDiv = document.getElementById('log');
@@ -31,7 +31,7 @@
         let isRunning = false;
 
         function log(msg, color = "#555") {
-            logDiv.innerHTML += `<span style="color: ${color}">> ${msg}</span><br>`;
+            logDiv.innerHTML += `<span style="color:${color}">> ${msg}</span><br>`;
             logDiv.scrollTop = logDiv.scrollHeight;
         }
 
@@ -45,68 +45,63 @@
                 let divisor = Math.floor(3000000 / 38400);
                 await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x03, value: divisor, index: 0 });
 
-                log("ELS27 ПОДКЛЮЧЕН. СНЯТИЕ ОГРАНИЧЕНИЙ...", "#0f0");
+                log("ELS27 СЦЕПЛЕН. ЗАПУСК ПРЯМОГО МОНИТОРИНГА...", "#0f0");
                 await send("ATZ");
                 await sleep(500);
                 await send("ATE0");
                 await send("ATH1");
-                await send("ATAL"); // Разрешить длинные сообщения
-                await send("ATS1"); // Удалять пробелы из ответа
+                await send("ATS1"); // Убрать пробелы
+                await send("ATAL"); // Длинные сообщения
                 
                 isRunning = true;
-                forceSearch();
+                forceMonitor();
             } catch (err) { log("ОШИБКА: " + err, "#f00"); }
         });
 
-        async function send(cmd, wait = 250) {
+        async function send(cmd, wait = 200) {
             try {
                 await device.transferOut(2, new TextEncoder().encode(cmd + "\r"));
                 await sleep(wait);
                 let res = await device.transferIn(1, 256);
                 let text = new TextDecoder().decode(res.data).replace(/\s/g, '').replace(/>/g, '');
-                if(text) log(`CMD: ${cmd} | RES: ${text}`, "#444");
                 return text;
             } catch (e) { return ""; }
         }
 
         function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
-        async function forceSearch() {
-            // Список "золотых" комбинаций для Ford Fusion (HEC и PCM)
-            const configs = [
-                {p: "ATSP6", h: "720", c: "22DD01"}, // Приборка (High Speed)
-                {p: "ATSPB", h: "720", c: "22DD01"}, // Приборка (Mid Speed)
-                {p: "ATSP6", h: "7E0", c: "2204FE"}, // Двигатель (High Speed)
-                {p: "ATSP6", h: "720", c: "2204FE"}, // Приборка (Альтернатива)
-                {p: "ATSPB", h: "727", c: "22DD01"}  // Приборка (Focus/Fusion Mix)
-            ];
-
+        async function forceMonitor() {
+            // Пытаемся настроиться на MS-CAN (125k) — там живет приборка
+            log("НАСТРОЙКА MS-CAN (125K)...");
+            await send("ATSPB"); 
+            
             while (isRunning) {
-                for (let config of configs) {
-                    log(`ПЕРЕХВАТ: ${config.p} ADDR: ${config.h}...`, "#888");
-                    await send(config.p);
-                    await send("ATSH" + config.h);
-                    
-                    // Запрашиваем данные
-                    let res = await send(config.config ? config.config : config.c, 600);
-                    
-                    if (res.includes("62")) {
-                        // Ищем 3 байта после подтверждения 62XXXX
-                        let startIdx = res.indexOf("62") + 6;
-                        let hex = res.substr(startIdx, 6);
-                        
-                        if (hex.length === 6) {
-                            let km = parseInt(hex, 16);
-                            // Пробег 500к+ в HEX это примерно 07A120. Проверяем на адекватность.
-                            if (km > 10000 && km < 1000000) {
-                                document.getElementById('odo').innerText = km.toLocaleString() + " KM";
-                                log(`!!! НАЙДЕНО: ${km} км !!!`, "#0f0");
-                                // Не останавливаемся, вдруг найдем другое значение в другом блоке
-                            }
+                // Прямой запрос пробега (Service 22, PID DD01)
+                await send("ATSH720");
+                let res = await send("22DD01", 500);
+                
+                log("RAW DATA: " + res);
+
+                // Если пришел ответ, в котором есть 62DD01
+                if (res.includes("62DD01")) {
+                    let start = res.indexOf("62DD01") + 6;
+                    let hex = res.substr(start, 6);
+                    if (hex.length === 6) {
+                        let km = parseInt(hex, 16);
+                        if (km > 1000) {
+                            document.getElementById('odo').innerText = km.toLocaleString() + " KM";
+                            log("ПРОБЕГ УСПЕШНО ИЗВЛЕЧЕН: " + km, "#0f0");
                         }
                     }
-                    await sleep(200);
                 }
+
+                // Если по адресу 720 тишина, пробуем "слушать" шину без запросов
+                if (res.includes("NO") || res.includes("ERROR")) {
+                    log("ЗАПРОС ОТКЛОНЕН. ВКЛЮЧАЮ РЕЖИМ ПЕРЕХВАТА (MA)...", "#888");
+                    await send("ATMA", 1000); // Мониторить всё в течение секунды
+                }
+                
+                await sleep(500);
             }
         }
     </script>
