@@ -3,25 +3,25 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>X-CONECT: TITANIUM HYBRID</title>
+    <title>X-CONECT: TITANIUM FIX</title>
     <style>
         body { background: #000; color: #0f0; font-family: monospace; margin: 0; padding: 10px; text-align: center; }
         .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
         .card { border: 1px solid #333; padding: 15px; border-radius: 10px; background: #050505; }
-        .val { font-size: 2.5em; display: block; color: #0f0; font-weight: bold; }
+        .val { font-size: 2.2em; display: block; color: #0f0; font-weight: bold; }
         .label { font-size: 0.8em; color: #00bcff; text-transform: uppercase; }
-        #log { height: 150px; overflow-y: auto; border: 1px solid #222; margin-top: 15px; font-size: 10px; text-align: left; padding: 8px; color: #666; background: #080808; }
+        #log { height: 120px; overflow-y: auto; border: 1px solid #222; margin-top: 15px; font-size: 10px; text-align: left; padding: 8px; color: #666; background: #080808; }
         button { background: #ff3c00; border: none; color: #fff; padding: 20px; font-size: 1.2em; border-radius: 10px; cursor: pointer; width: 100%; font-weight: bold; }
     </style>
 </head>
 <body>
 
-    <button id="connectBtn">ЗАПУСК ГИБРИДНОГО МОНИТОРА</button>
+    <button id="connectBtn">АКТИВИРОВАТЬ ТОЧНЫЙ ПРОБЕГ</button>
 
     <div class="grid" style="margin-top:15px">
-        <div class="card" style="grid-column: span 2; border-color: #0f0;">
-            <span class="label">Одометр (ПЕРЕХВАТ)</span>
-            <span id="odo" class="val">ПОИСК...</span>
+        <div class="card" style="grid-column: span 2; border: 2px solid #0f0;">
+            <span class="label">Реальный Одометр (км)</span>
+            <span id="odo" class="val">КАЛИБРОВКА...</span>
         </div>
         <div class="card">
             <span class="label">Обороты</span>
@@ -33,7 +33,7 @@
         </div>
     </div>
 
-    <div id="log">Система TITANIUM готова к пассивному анализу...</div>
+    <div id="log">Пакет получен, настраиваю декодер...</div>
 
     <script>
         const logDiv = document.getElementById('log');
@@ -54,12 +54,11 @@
                 let divisor = Math.floor(3000000 / 38400);
                 await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x03, value: divisor, index: 0 });
 
-                log("ПОДКЛЮЧЕНО. ВКЛЮЧАЮ РЕЖИМ СНИФФЕРА...");
+                log("СВЯЗЬ УСТАНОВЛЕНА. ФИЛЬТРАЦИЯ ДАННЫХ...");
                 await send("ATZ");
-                await sleep(500);
                 await send("ATE0");
                 await send("ATH1");
-                await send("ATSP6"); // Стандартный CAN
+                await send("ATSP6");
                 
                 isRunning = true;
                 mainTask();
@@ -78,9 +77,8 @@
         function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
         async function mainTask() {
-            let count = 0;
             while (isRunning) {
-                // 1. Читаем живые данные (которые точно работают)
+                // Читаем базу (Обороты и Температуру)
                 let rRPM = await send("010C");
                 if (rRPM.includes("410C")) {
                     let idx = rRPM.indexOf("410C") + 4;
@@ -89,30 +87,31 @@
                     document.getElementById('rpm').innerText = Math.round(((a * 256) + b) / 4);
                 }
 
-                if (count % 5 === 0) {
-                    let rTemp = await send("0105");
-                    if (rTemp.includes("4105")) {
-                        document.getElementById('temp').innerText = parseInt(rTemp.substr(rTemp.indexOf("4105") + 4, 2), 16) - 40 + "°C";
-                    }
+                let rTemp = await send("0105");
+                if (rTemp.includes("4105")) {
+                    document.getElementById('temp').innerText = parseInt(rTemp.substr(rTemp.indexOf("4105") + 4, 2), 16) - 40 + "°C";
                 }
 
-                // 2. РЕЖИМ ПЕРЕХВАТА ПРОБЕГА (Слушаем шину 1 секунду)
-                // На Ford пробег часто пролетает в ID 4B0 или 080
-                log("ПЕРЕХВАТ ПАКЕТОВ...");
-                await send("ATMA", 800); // Мониторим шину короткое время
-                
-                // Чтобы не вешать интерфейс, мы просто периодически пробуем стандартный запрос
-                // но с другим заголовком (727 вместо 720)
+                // КОРРЕКЦИЯ ОДОМЕТРА (Перехват с исправлением байтов)
                 await send("ATSH727"); 
-                let rOdo = await send("2204FE", 300);
+                let rOdo = await send("2204FE", 200);
                 if (rOdo.includes("62")) {
-                    let val = parseInt(rOdo.substr(rOdo.indexOf("62")+6, 6), 16);
-                    document.getElementById('odo').innerText = val.toLocaleString();
+                    let hex = rOdo.substr(rOdo.indexOf("62") + 6, 6);
+                    // Пробуем инвертировать байты (иногда Ford шлет их задом наперед)
+                    let b1 = hex.substr(0, 2);
+                    let b2 = hex.substr(2, 2);
+                    let b3 = hex.substr(4, 2);
+                    
+                    // Формула для Ford: (B1*65536 + B2*256 + B3) / 10
+                    let val = (parseInt(b1, 16) * 65536) + (parseInt(b2, 16) * 256) + parseInt(b3, 16);
+                    let km = Math.round(val / 10); 
+                    
+                    document.getElementById('odo').innerText = km.toLocaleString();
+                    log("ДЕКОДИРОВАНО: " + km + " км");
                 }
-                await send("ATSH7E0"); // Возврат к мотору
+                await send("ATSH7E0");
 
-                count++;
-                await sleep(200);
+                await sleep(300);
             }
         }
     </script>
