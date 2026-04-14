@@ -64,15 +64,14 @@
         .value { font-size: 10vw; font-weight: bold; line-height: 1.1; }
         .unit { font-size: 16px; color: var(--text-dim); }
         #status { color: var(--text-warn); font-size: 14px; font-weight: bold; }
-        
         #logConsole {
-            height: 130px;
+            height: 120px;
             background: #050505;
             color: #888;
-            font-size: 11px;
-            padding: 8px;
+            font-size: 10px;
+            padding: 5px;
             overflow-y: auto;
-            border-top: 2px solid var(--text-dim);
+            border-top: 1px solid var(--text-dim);
         }
     </style>
 </head>
@@ -120,15 +119,15 @@
         <div class="unit">КМ</div>
     </div>
 
-    <div class="card">
+    <div class="card card-full">
         <div class="title">Суточный пробег</div>
         <div class="value" style="font-size: 6vw;" id="tripVal">0.0</div>
         <div class="unit">КМ</div>
-        <button id="resetTripBtn" style="margin-top: 5px; padding: 5px 10px; font-size: 12px; border: 1px solid var(--text-dim); background: transparent; color: var(--text-dim); cursor: pointer;">СБРОС</button>
+        <button id="resetTripBtn" style="margin-top: 5px; padding: 5px 10px; font-size: 12px;">СБРОС ПРОБЕГА</button>
     </div>
 </div>
 
-<div id="logConsole">Ожидание подключения USB...</div>
+<div id="logConsole">Ожидание инициализации...</div>
 
 <script>
     const TANK_VOLUME = 45.0;
@@ -136,9 +135,8 @@
 
     let device;
     let isConnected = false;
-    
-    // Команды опроса: RPM, Temp, Speed, MAF, Fuel, Odo (Ford-specific)
-    let commandQueue = ['010C', '0105', '010D', '0110', '012F', '22DD01']; 
+    // Очередь: RPM, Скорость, Температура, Расход, Бак, Пробег
+    let commandQueue = ['010C', '010D', '0105', '0110', '012F', '0131']; 
     let cmdIndex = 0;
     let buffer = '';
     
@@ -161,14 +159,10 @@
         log: document.getElementById('logConsole')
     };
 
-    const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
-
-    function writeLog(msg, isRaw = false) {
+    function writeLog(msg) {
         const time = new Date().toLocaleTimeString();
-        const color = isRaw ? '#0f0' : '#888';
-        els.log.innerHTML += `<div><span style="color:#444">[${time}]</span> <span style="color:${color}">${msg}</span></div>`;
+        els.log.innerHTML += `<div>[${time}] ${msg}</div>`;
         els.log.scrollTop = els.log.scrollHeight;
-        if (els.log.childElementCount > 60) els.log.removeChild(els.log.firstChild);
     }
 
     els.trip.innerText = tripDistance.toFixed(1);
@@ -177,7 +171,6 @@
         tripDistance = 0.0;
         localStorage.setItem('tripDistance', tripDistance);
         els.trip.innerText = '0.0';
-        writeLog("Суточный пробег сброшен");
     });
 
     els.connectBtn.addEventListener('click', async () => {
@@ -201,52 +194,44 @@
             els.connectBtn.style.display = "none";
             isConnected = true;
 
-            writeLog("USB OK. Инициализация Ford CAN...");
-            startReading(); 
+            startReading();
             
-            await sendOBD("\r\r"); await sleep(300);
-            await sendOBD("ATZ"); await sleep(1000); 
-            await sendOBD("ATE0"); await sleep(300); 
-            await sendOBD("ATH1"); await sleep(300); 
-            await sendOBD("ATSP6"); await sleep(500); // ISO 15765-4 CAN (11/500)
-            await sendOBD("ATST64"); await sleep(300); // Увеличенный таймаут для ответа ЭБУ
-            
-            writeLog("Синхронизация с блоками...");
-            await sendOBD("0100"); await sleep(1000); 
-
-            writeLog("СИСТЕМА ГОТОВА. СТАРТ...");
-            pollCycle();
+            writeLog("Сброс адаптера...");
+            await sendOBD("ATZ");
+            setTimeout(async () => {
+                await sendOBD("ATE0"); // Эхо выкл
+                await sendOBD("ATSP6"); // Протокол Ford CAN
+                await sendOBD("ATST64"); // Таймаут ответа
+                writeLog("Протокол Ford CAN установлен. Опрос...");
+                setTimeout(pollCycle, 1000);
+            }, 1000);
 
         } catch (err) {
-            els.status.innerText = "ОШИБКА USB";
-            writeLog("ОШИБКА: " + err.message);
+            writeLog("Ошибка: " + err.message);
         }
     });
 
     async function sendOBD(cmd) {
         if (!isConnected) return;
-        buffer = ''; // Очистка перед новой командой
         const data = new TextEncoder().encode(cmd + '\r');
-        await device.transferOut(2, data); 
+        await device.transferOut(2, data);
     }
 
     async function startReading() {
         while (isConnected) {
             try {
-                const result = await device.transferIn(1, 64); 
+                const result = await device.transferIn(1, 64);
                 const text = new TextDecoder().decode(result.data);
                 buffer += text;
 
                 if (buffer.includes('>')) {
-                    let cleanResponse = buffer.replace('>', '').trim();
-                    if(cleanResponse.length > 0) {
-                        writeLog("> " + cleanResponse, true); 
-                        processResponse(cleanResponse);
-                    }
-                    buffer = ''; 
+                    let response = buffer.replace('>', '').trim();
+                    processResponse(response);
+                    buffer = '';
                 }
             } catch (err) {
                 isConnected = false;
+                els.status.innerText = "СВЯЗЬ ПОТЕРЯНА";
                 break;
             }
         }
@@ -254,21 +239,16 @@
 
     function pollCycle() {
         if (!isConnected) return;
-        let cmd = commandQueue[cmdIndex];
-        sendOBD(cmd);
+        sendOBD(commandQueue[cmdIndex]);
         cmdIndex = (cmdIndex + 1) % commandQueue.length;
-        // Задержка 1 секунда для стабильности
-        setTimeout(pollCycle, 1000); 
+        // 600мс для стабильности Ford
+        setTimeout(pollCycle, 600); 
     }
 
     function processResponse(hexStr) {
         hexStr = hexStr.replace(/\s+/g, '').toUpperCase();
         
-        if (hexStr.includes('CANERROR') || hexStr.includes('NODATA') || hexStr.includes('STOPPED')) {
-            return;
-        }
-
-        // RPM (010C)
+        // Обороты (41 0C)
         if (hexStr.includes('410C')) {
             let idx = hexStr.indexOf('410C') + 4;
             let a = parseInt(hexStr.substring(idx, idx + 2), 16);
@@ -276,19 +256,18 @@
             if (!isNaN(a) && !isNaN(b)) els.rpm.innerText = Math.round(((a * 256) + b) / 4);
         }
 
-        // TEMP (0105)
+        // Температура (41 05)
         if (hexStr.includes('4105')) {
             let idx = hexStr.indexOf('4105') + 4;
             let val = parseInt(hexStr.substring(idx, idx + 2), 16);
             if (!isNaN(val)) els.temp.innerText = val - 40;
         }
 
-        // SPEED (010D)
+        // Скорость (41 0D)
         if (hexStr.includes('410D')) {
             let idx = hexStr.indexOf('410D') + 4;
-            let val = parseInt(hexStr.substring(idx, idx + 2), 16);
-            if (!isNaN(val)) {
-                currentSpeed = val;
+            currentSpeed = parseInt(hexStr.substring(idx, idx + 2), 16);
+            if (!isNaN(currentSpeed)) {
                 els.speed.innerText = currentSpeed;
                 let now = Date.now();
                 let hours = (now - lastTime) / 3600000;
@@ -299,7 +278,7 @@
             }
         }
         
-        // MAF (0110) -> Расход
+        // Расход (41 10 - MAF)
         if (hexStr.includes('4110')) {
             let idx = hexStr.indexOf('4110') + 4;
             let maf = (parseInt(hexStr.substring(idx, idx + 4), 16)) / 100;
@@ -315,21 +294,21 @@
             }
         }
 
-        // FUEL (012F)
+        // Бак (41 2F)
         if (hexStr.includes('412F')) {
             let idx = hexStr.indexOf('412F') + 4;
-            let val = parseInt(hexStr.substring(idx, idx + 2), 16);
-            if (!isNaN(val)) {
-                let liters = TANK_VOLUME * (val / 255);
+            let level = parseInt(hexStr.substring(idx, idx + 2), 16);
+            if (!isNaN(level)) {
+                let liters = TANK_VOLUME * (level / 255);
                 els.fuel.innerText = liters.toFixed(1);
             }
         }
 
-        // ODOMETER (Ford 22DD01)
-        if (hexStr.includes('62DD01')) {
-            let idx = hexStr.indexOf('62DD01') + 6;
-            let val = parseInt(hexStr.substring(idx, idx + 6), 16);
-            if (!isNaN(val)) els.odo.innerText = val;
+        // Одометр (41 31)
+        if (hexStr.includes('4131')) {
+            let idx = hexStr.indexOf('4131') + 4;
+            let odo = parseInt(hexStr.substring(idx, idx + 4), 16);
+            if (!isNaN(odo)) els.odo.innerText = odo;
         }
     }
 </script>
