@@ -3,41 +3,29 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>X-CONECT: TITANIUM FIX</title>
+    <title>X-CONECT: ODO STABLE</title>
     <style>
         body { background: #000; color: #0f0; font-family: monospace; margin: 0; padding: 10px; text-align: center; }
-        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-        .card { border: 1px solid #333; padding: 15px; border-radius: 10px; background: #050505; }
-        .val { font-size: 2.2em; display: block; color: #0f0; font-weight: bold; }
-        .label { font-size: 0.8em; color: #00bcff; text-transform: uppercase; }
-        #log { height: 120px; overflow-y: auto; border: 1px solid #222; margin-top: 15px; font-size: 10px; text-align: left; padding: 8px; color: #666; background: #080808; }
-        button { background: #ff3c00; border: none; color: #fff; padding: 20px; font-size: 1.2em; border-radius: 10px; cursor: pointer; width: 100%; font-weight: bold; }
+        .card { border: 2px solid #0f0; padding: 30px; border-radius: 15px; background: #050505; margin: 20px 0; }
+        .val { font-size: 3.5em; display: block; color: #0f0; font-weight: bold; text-shadow: 0 0 15px #0f0; }
+        #log { height: 150px; overflow-y: auto; border: 1px solid #222; font-size: 11px; text-align: left; padding: 10px; color: #666; background: #0a0a0a; }
+        button { background: #0f0; border: none; color: #000; padding: 20px; font-size: 1.2em; border-radius: 10px; cursor: pointer; width: 100%; font-weight: bold; }
     </style>
 </head>
 <body>
 
-    <button id="connectBtn">АКТИВИРОВАТЬ ТОЧНЫЙ ПРОБЕГ</button>
+    <button id="connectBtn">ПОДКЛЮЧИТЬ И ЖДАТЬ</button>
 
-    <div class="grid" style="margin-top:15px">
-        <div class="card" style="grid-column: span 2; border: 2px solid #0f0;">
-            <span class="label">Реальный Одометр (км)</span>
-            <span id="odo" class="val">КАЛИБРОВКА...</span>
-        </div>
-        <div class="card">
-            <span class="label">Обороты</span>
-            <span id="rpm" class="val">0</span>
-        </div>
-        <div class="card">
-            <span class="label">Мотор</span>
-            <span id="temp" class="val">--</span>
-        </div>
+    <div class="card">
+        <span style="color: #00bcff; text-transform: uppercase;">Найденный пробег:</span>
+        <span id="odo" class="val">--- ---</span>
     </div>
 
-    <div id="log">Пакет получен, настраиваю декодер...</div>
+    <div id="log">Нажмите кнопку и не выключайте зажигание...</div>
 
     <script>
         const logDiv = document.getElementById('log');
-        let device, isRunning = false;
+        let device;
 
         function log(msg) {
             logDiv.innerHTML += `> ${msg}<br>`;
@@ -54,64 +42,57 @@
                 let divisor = Math.floor(3000000 / 38400);
                 await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x03, value: divisor, index: 0 });
 
-                log("СВЯЗЬ УСТАНОВЛЕНА. ФИЛЬТРАЦИЯ ДАННЫХ...");
+                log("ПОДКЛЮЧЕНО. СТАБИЛИЗАЦИЯ ШИНЫ...");
                 await send("ATZ");
+                await sleep(1000);
                 await send("ATE0");
                 await send("ATH1");
-                await send("ATSP6");
+                await send("ATSP6"); // Возвращаемся к HS-CAN
                 
-                isRunning = true;
-                mainTask();
+                runStableScan();
             } catch (err) { log("ОШИБКА: " + err); }
         });
 
-        async function send(cmd, wait = 150) {
+        async function send(cmd, wait = 500) {
             try {
                 await device.transferOut(2, new TextEncoder().encode(cmd + "\r"));
                 await sleep(wait);
                 let res = await device.transferIn(1, 128);
-                return new TextDecoder().decode(res.data).replace(/\s/g, '');
+                let txt = new TextDecoder().decode(res.data).replace(/\s/g, '').replace(/>/g, '');
+                if (txt.includes("62")) log("ОТВЕТ ПОЛУЧЕН!");
+                return txt;
             } catch (e) { return ""; }
         }
 
         function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
-        async function mainTask() {
-            while (isRunning) {
-                // Читаем базу (Обороты и Температуру)
-                let rRPM = await send("010C");
-                if (rRPM.includes("410C")) {
-                    let idx = rRPM.indexOf("410C") + 4;
-                    let a = parseInt(rRPM.substr(idx, 2), 16);
-                    let b = parseInt(rRPM.substr(idx + 2, 2), 16);
-                    document.getElementById('rpm').innerText = Math.round(((a * 256) + b) / 4);
-                }
+        async function runStableScan() {
+            while (true) {
+                // Мягко запрашиваем приборку
+                await send("ATSH720");
+                let res = await send("22DD01", 800); // Даем почти секунду на ответ
 
-                let rTemp = await send("0105");
-                if (rTemp.includes("4105")) {
-                    document.getElementById('temp').innerText = parseInt(rTemp.substr(rTemp.indexOf("4105") + 4, 2), 16) - 40 + "°C";
+                if (res.includes("62DD01")) {
+                    let hex = res.substr(res.indexOf("62DD01") + 6, 6);
+                    let km = parseInt(hex, 16);
+                    if (km > 0) {
+                        document.getElementById('odo').innerText = km.toLocaleString();
+                        log("УСПЕХ: " + km + " км");
+                    }
+                } else {
+                    // Если приборка молчит, пробуем второй адрес (который один раз сработал)
+                    log("АДРЕС 720 МОЛЧИТ, ПРОБУЮ 727...");
+                    await send("ATSH727");
+                    let res2 = await send("22DD01", 800);
+                    if (res2.includes("62")) {
+                        let hex2 = res2.substr(res2.indexOf("62") + 6, 6);
+                        let km2 = parseInt(hex2, 16);
+                        document.getElementById('odo').innerText = km2.toLocaleString();
+                    }
                 }
-
-                // КОРРЕКЦИЯ ОДОМЕТРА (Перехват с исправлением байтов)
-                await send("ATSH727"); 
-                let rOdo = await send("2204FE", 200);
-                if (rOdo.includes("62")) {
-                    let hex = rOdo.substr(rOdo.indexOf("62") + 6, 6);
-                    // Пробуем инвертировать байты (иногда Ford шлет их задом наперед)
-                    let b1 = hex.substr(0, 2);
-                    let b2 = hex.substr(2, 2);
-                    let b3 = hex.substr(4, 2);
-                    
-                    // Формула для Ford: (B1*65536 + B2*256 + B3) / 10
-                    let val = (parseInt(b1, 16) * 65536) + (parseInt(b2, 16) * 256) + parseInt(b3, 16);
-                    let km = Math.round(val / 10); 
-                    
-                    document.getElementById('odo').innerText = km.toLocaleString();
-                    log("ДЕКОДИРОВАНО: " + km + " км");
-                }
-                await send("ATSH7E0");
-
-                await sleep(300);
+                
+                log("ПАУЗА ПЕРЕД СЛЕДУЮЩИМ ЦИКЛОМ...");
+                await sleep(3000); // Ждем 3 секунды, чтобы не перегружать блоки
             }
         }
     </script>
