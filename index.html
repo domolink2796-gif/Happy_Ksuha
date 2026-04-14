@@ -3,41 +3,40 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>X-CONECT: FUEL MONITOR</title>
+    <title>X-CONECT: FUEL LIVE</title>
     <style>
         body { background: #000; color: #0f0; font-family: monospace; margin: 0; padding: 10px; text-align: center; }
-        .fuel-card { border: 3px solid #00bcff; padding: 30px; border-radius: 20px; background: #050505; margin: 20px 0; }
-        .fuel-val { font-size: 4em; display: block; color: #00bcff; font-weight: bold; text-shadow: 0 0 15px #00bcff; }
+        .fuel-box { border: 4px solid #00bcff; padding: 25px; border-radius: 20px; background: #050505; margin: 15px 0; }
+        .fuel-val { font-size: 5em; display: block; color: #00bcff; font-weight: bold; }
         .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-        .card { border: 1px solid #333; padding: 15px; border-radius: 10px; background: #050505; }
-        .val { font-size: 2em; display: block; color: #0f0; }
-        .label { font-size: 0.8em; color: #666; text-transform: uppercase; }
-        #log { height: 120px; overflow-y: auto; border: 1px solid #222; margin-top: 15px; font-size: 10px; text-align: left; padding: 8px; color: #444; background: #080808; }
-        button { background: #00bcff; border: none; color: #000; padding: 20px; font-size: 1.2em; border-radius: 10px; cursor: pointer; width: 100%; font-weight: bold; }
+        .card { border: 1px solid #222; padding: 12px; border-radius: 10px; background: #080808; }
+        .val { font-size: 1.8em; display: block; color: #0f0; }
+        #log { height: 100px; overflow-y: auto; border: 1px solid #111; margin-top: 15px; font-size: 10px; text-align: left; padding: 8px; color: #555; }
+        button { background: #00bcff; border: none; color: #000; padding: 20px; font-size: 1.1em; border-radius: 12px; cursor: pointer; width: 100%; font-weight: bold; }
     </style>
 </head>
 <body>
 
-    <button id="connectBtn">ЗАПУСТИТЬ МОНИТОР БАКА</button>
+    <button id="connectBtn">ПЕРЕЗАПУСТИТЬ МОНИТОР</button>
 
-    <div class="fuel-card">
-        <span style="color: #00bcff;">УРОВЕНЬ ТОПЛИВА</span>
+    <div class="fuel-box">
+        <span style="color: #00bcff; font-size: 0.9em;">ОСТАТОК В БАКЕ</span>
         <span id="fuel" class="fuel-val">--</span>
-        <span style="color: #00bcff; font-size: 1.2em;">ЛИТРОВ</span>
+        <span style="color: #00bcff; font-size: 1.5em;">ЛИТРОВ</span>
     </div>
 
     <div class="grid">
         <div class="card">
-            <span class="label">Температура</span>
+            <span style="color:#666; font-size:0.7em;">МОТОР</span>
             <span id="temp" class="val">--</span>
         </div>
         <div class="card">
-            <span class="label">Обороты</span>
+            <span style="color:#666; font-size:0.7em;">ОБОРОТЫ</span>
             <span id="rpm" class="val">0</span>
         </div>
     </div>
 
-    <div id="log">Ожидание подключения USB...</div>
+    <div id="log">Перезагрузите страницу и нажмите кнопку...</div>
 
     <script>
         const logDiv = document.getElementById('log');
@@ -55,78 +54,71 @@
                 await device.selectConfiguration(1);
                 await device.claimInterface(0);
                 
+                // Установка скорости 38400 (стабильная для ELS27)
                 let divisor = Math.floor(3000000 / 38400);
                 await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x03, value: divisor, index: 0 });
 
-                log("ПОДКЛЮЧЕНО. ИЩУ ДАТЧИК ТОПЛИВА...");
+                log("СБРОС ШИНЫ...");
                 await send("ATZ");
-                await sleep(500);
+                await sleep(1000);
                 await send("ATE0");
                 await send("ATSP6");
-                
+                await send("ATH1"); 
+
                 isRunning = true;
-                fuelLoop();
+                mainLoop();
             } catch (err) { log("ОШИБКА: " + err); }
         });
 
-        async function send(cmd, wait = 200) {
+        async function send(cmd, wait = 250) {
             try {
                 await device.transferOut(2, new TextEncoder().encode(cmd + "\r"));
                 await sleep(wait);
                 let res = await device.transferIn(1, 128);
-                return new TextDecoder().decode(res.data).replace(/\s/g, '');
+                let txt = new TextDecoder().decode(res.data).replace(/\s/g, '');
+                return txt;
             } catch (e) { return ""; }
         }
 
         function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
-        async function fuelLoop() {
-            let attempt = 0;
+        async function mainLoop() {
             while (isRunning) {
-                // Базовые параметры для проверки связи
-                let rRPM = await send("010C");
+                // 1. Обороты (для проверки, что данные идут в реальном времени)
+                let rRPM = await send("010C", 150);
                 if (rRPM.includes("410C")) {
                     let idx = rRPM.indexOf("410C") + 4;
-                    document.getElementById('rpm').innerText = Math.round(((parseInt(rRPM.substr(idx, 2), 16) * 256) + parseInt(rRPM.substr(idx + 2, 2), 16)) / 4);
+                    let val = Math.round(((parseInt(rRPM.substr(idx, 2), 16) * 256) + parseInt(rRPM.substr(idx + 2, 2), 16)) / 4);
+                    document.getElementById('rpm').innerText = val;
                 }
 
-                // ПОИСК БЕНЗИНА (3 разных метода)
-                let fuelData = "";
-                
-                if (attempt % 3 === 0) {
-                    // Метод 1: Стандартный OBD2 (Level in %)
-                    fuelData = await send("012F");
-                    if (fuelData.includes("412F")) {
-                        let raw = parseInt(fuelData.substr(fuelData.indexOf("412F") + 4, 2), 16);
-                        let liters = Math.round((raw * 45) / 255); // Бак Fusion 45л
-                        document.getElementById('fuel').innerText = liters;
-                    }
-                } else if (attempt % 3 === 1) {
-                    // Метод 2: Ford Specific (Fuel Tank Input)
-                    await send("ATSH720");
-                    fuelData = await send("22042C");
-                    if (fuelData.includes("62042C")) {
-                        let raw = parseInt(fuelData.substr(fuelData.indexOf("62042C") + 6, 2), 16);
-                        document.getElementById('fuel').innerText = Math.round((raw * 45) / 255);
-                    }
-                } else {
-                    // Метод 3: Ford Specific Alternative
-                    await send("ATSH720");
-                    fuelData = await send("220461");
-                    if (fuelData.includes("620461")) {
-                        let raw = parseInt(fuelData.substr(fuelData.indexOf("620461") + 6, 2), 16);
-                        document.getElementById('fuel').innerText = Math.round(raw / 2); // Бывает в % * 2
-                    }
-                }
-
-                // Температура
-                let rTemp = await send("0105");
+                // 2. Температура
+                let rTemp = await send("0105", 150);
                 if (rTemp.includes("4105")) {
-                    document.getElementById('temp').innerText = parseInt(rTemp.substr(rTemp.indexOf("4105") + 4, 2), 16) - 40 + "°C";
+                    document.getElementById('temp').innerText = (parseInt(rTemp.substr(rTemp.indexOf("4105") + 4, 2), 16) - 40) + "°C";
                 }
 
-                attempt++;
-                await sleep(1000); // Опрос раз в секунду
+                // 3. БЕНЗИН (Главный запрос)
+                // Очищаем заголовки перед топливом
+                await send("ATSH7E0"); 
+                let rFuel = await send("012F", 400); // Увеличили ожидание для бака
+                
+                if (rFuel.includes("412F")) {
+                    let raw = parseInt(rFuel.substr(rFuel.indexOf("412F") + 4, 2), 16);
+                    // Расчет для бака Ford Fusion (45 литров)
+                    let liters = Math.round((raw * 45) / 255);
+                    document.getElementById('fuel').innerText = liters;
+                    log("ТОПЛИВО ОБНОВЛЕНО: " + liters + "Л");
+                } else {
+                    // Если стандарт не ответил, пробуем расширенный Ford PID
+                    let rFuel2 = await send("22042C", 400);
+                    if (rFuel2.includes("62042C")) {
+                        let raw2 = parseInt(rFuel2.substr(rFuel2.indexOf("62042C") + 6, 2), 16);
+                        document.getElementById('fuel').innerText = Math.round((raw2 * 45) / 255);
+                    }
+                }
+
+                await sleep(500); // Пауза между кругами, чтобы шина не зависала
             }
         }
     </script>
