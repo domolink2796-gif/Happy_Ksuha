@@ -47,7 +47,7 @@
         </div>
     </div>
 
-    <div id="log">Ожидание активации...</div>
+    <div id="log">Ожидание...</div>
 
     <script>
         const logDiv = document.getElementById('log');
@@ -71,11 +71,11 @@
                     request: 0x03, value: 0x4138, index: 0
                 });
 
-                log("ПОДКЛЮЧЕНО");
+                log("СВЯЗЬ УСТАНОВЛЕНА");
                 await sendCommand("ATZ");
                 await sleep(500);
                 await sendCommand("ATE0");
-                await sendCommand("ATSP0"); // Оставляю как было в твоем файле
+                await sendCommand("ATSP0");
                 
                 log("ОПРОС ЗАПУЩЕН");
                 startPolling();
@@ -87,7 +87,7 @@
         async function sendCommand(cmd) {
             try {
                 await device.transferOut(2, new TextEncoder().encode(cmd + "\r"));
-                await sleep(200); // Твоя рабочая задержка
+                await sleep(200);
                 let result = await device.transferIn(1, 64);
                 return new TextDecoder().decode(result.data);
             } catch (e) {
@@ -97,14 +97,14 @@
 
         function startPolling() {
             setInterval(async () => {
-                // Твои рабочие команды
+                // Твои работающие команды
                 let resRPM = await sendCommand("010C");
                 parseRPM(resRPM);
 
                 let resTemp = await sendCommand("0105");
                 parseData(resTemp, "4105", 'temp', 1, -40);
 
-                // Добавленные команды
+                // Добавленные команды (Speed, Fuel, Odo)
                 let resSpeed = await sendCommand("010D");
                 parseData(resSpeed, "410D", 'speed', 1);
 
@@ -117,7 +117,6 @@
             }, 1000);
         }
 
-        // Твои рабочие функции парсинга
         function parseData(hex, pid, elementId, byteCount, offset = 0) {
             let clean = hex.replace(/\s/g, '');
             let index = clean.indexOf(pid);
@@ -138,13 +137,12 @@
             }
         }
 
-        // Добавленные функции парсинга
         function parseFuel(hex) {
             let clean = hex.replace(/\s/g, '');
             let index = clean.indexOf("412F");
             if (index !== -1) {
                 let raw = parseInt(clean.substr(index + 4, 2), 16);
-                let liters = Math.round((raw / 255) * 45); // Расчет на 45 литров
+                let liters = Math.round((raw / 255) * 45); // Бак 45л
                 document.getElementById('fuel').innerText = liters;
             }
         }
