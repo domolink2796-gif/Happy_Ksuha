@@ -62,7 +62,6 @@
                 await device.selectConfiguration(1);
                 await device.claimInterface(0);
                 
-                // Настройка FTDI
                 let divisor = Math.floor(3000000 / 38400);
                 await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x03, value: divisor, index: 0 });
 
@@ -70,7 +69,7 @@
                 await send("ATZ");
                 await sleep(500);
                 await send("ATE0");
-                await send("ATSP6"); // CAN
+                await send("ATSP6"); 
                 await send("ATH1");
                 
                 isRunning = true;
@@ -93,7 +92,7 @@
             let slowDataCounter = 0;
             
             while (isRunning) {
-                // 1. СКОРЫЕ ДАННЫЕ (Обороты и скорость - высокий приоритет)
+                // 1. ОБОРОТЫ
                 let rRPM = await send("010C");
                 if (rRPM.includes("410C")) {
                     let idx = rRPM.indexOf("410C") + 4;
@@ -102,12 +101,15 @@
                     document.getElementById('rpm').innerText = Math.round(((a * 256) + b) / 4);
                 }
 
+                // 2. СКОРОСТЬ
                 let rSpeed = await send("010D");
                 if (rSpeed.includes("410D")) {
-                    document.getElementById('speed').innerText = parseInt(rSpeed.substr(rSpeed.indexOf("410D") + 4, 2), 16);
+                    let sIdx = rSpeed.indexOf("410D") + 4;
+                    let sVal = parseInt(rSpeed.substr(sIdx, 2), 16);
+                    if (!isNaN(sVal)) document.getElementById('speed').innerText = sVal;
                 }
 
-                // 2. СРЕДНИЕ ДАННЫЕ (Температура - раз в 3 итерации)
+                // 3. ТЕМПЕРАТУРА (раз в 3 цикла)
                 if (slowDataCounter % 3 === 0) {
                     let rTemp = await send("0105");
                     if (rTemp.includes("4105")) {
@@ -115,26 +117,32 @@
                     }
                 }
 
-                // 3. ТЯЖЕЛЫЕ ДАННЫЕ (Пробег и бак - раз в 10 итераций)
+                // 4. ТЯЖЕЛЫЕ ДАННЫЕ (Бак и Одометр - раз в 10 циклов)
                 if (slowDataCounter % 10 === 0) {
-                    // Бак (через PCM)
+                    // Пробуем два варианта для Бака (Бак 45 л)
                     let rFuel = await send("22042C");
-                    if (rFuel.includes("62042C")) {
-                        let f = parseInt(rFuel.substr(rFuel.indexOf("62042C") + 6, 2), 16);
-                        document.getElementById('fuel').innerText = Math.round((f * 52) / 255);
+                    if (!rFuel.includes("62042C")) rFuel = await send("220461"); 
+                    
+                    if (rFuel.includes("62")) {
+                        let fRaw = parseInt(rFuel.substr(rFuel.indexOf("62")+6, 2), 16);
+                        if (!isNaN(fRaw)) document.getElementById('fuel').innerText = Math.round((fRaw * 45) / 255);
                     }
 
-                    // Одометр (через приборку Ford)
+                    // Пробуем два варианта для Одометра
                     let rOdo = await send("2204FE");
-                    if (rOdo.includes("6204FE")) {
-                        let val = parseInt(rOdo.substr(rOdo.indexOf("6204FE") + 6, 6), 16);
-                        if (!isNaN(val)) document.getElementById('odo').innerText = val.toLocaleString();
+                    if (!rOdo.includes("6204FE")) rOdo = await send("22DD01");
+
+                    if (rOdo.includes("62")) {
+                        let oIdx = rOdo.indexOf("62") + 6;
+                        let oHex = rOdo.substr(oIdx, 6);
+                        let oVal = parseInt(oHex, 16);
+                        if (!isNaN(oVal)) document.getElementById('odo').innerText = oVal.toLocaleString();
                     }
                 }
 
                 slowDataCounter++;
                 if (slowDataCounter > 100) slowDataCounter = 0;
-                await sleep(50); // Короткая пауза для стабильности
+                await sleep(50); 
             }
         }
     </script>
