@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>X-CONECT: FIX PANEL</title>
+    <title>X-CONECT: Digital Dashboard</title>
     <style>
         :root {
             --bg-color: #000000;
@@ -13,165 +13,359 @@
             --text-dim: #555555;
         }
         * { box-sizing: border-box; margin: 0; padding: 0; }
-        body { background: var(--bg-color); color: var(--text-main); font-family: monospace; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
-        header { display: flex; justify-content: space-between; align-items: center; padding: 10px; border-bottom: 2px solid var(--text-dim); }
-        .grid { display: grid; grid-template-columns: 1fr 1fr; flex-grow: 1; padding: 10px; gap: 10px; }
-        .card { border: 1px solid var(--text-dim); border-radius: 8px; display: flex; flex-direction: column; justify-content: center; align-items: center; padding: 5px; }
+        body { 
+            background-color: var(--bg-color); 
+            color: var(--text-main); 
+            font-family: 'Courier New', Courier, monospace; 
+            display: flex; 
+            flex-direction: column; 
+            height: 100vh; 
+            overflow: hidden;
+        }
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 20px;
+            border-bottom: 2px solid var(--text-dim);
+        }
+        button {
+            background-color: #111;
+            color: var(--text-main);
+            border: 2px solid var(--text-main);
+            padding: 15px 25px;
+            font-size: 18px;
+            font-weight: bold;
+            border-radius: 10px;
+            cursor: pointer;
+            box-shadow: 0 0 15px rgba(0, 255, 0, 0.2);
+        }
+        button:active { background-color: var(--text-main); color: black; }
+        .grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            grid-template-rows: auto auto auto auto;
+            flex-grow: 1;
+            padding: 10px;
+            gap: 10px;
+            overflow-y: auto;
+        }
+        .card {
+            border: 2px solid var(--text-dim);
+            border-radius: 10px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            padding: 10px;
+        }
         .card-full { grid-column: span 2; }
-        .title { font-size: 12px; color: var(--text-accent); }
-        .value { font-size: 8vw; font-weight: bold; }
-        #logConsole { height: 150px; background: #050505; color: #888; font-size: 11px; padding: 8px; overflow-y: auto; border-top: 2px solid var(--text-dim); }
-        button { background: #111; color: var(--text-main); border: 2px solid var(--text-main); padding: 10px 20px; border-radius: 5px; cursor: pointer; }
+        .title { font-size: 14px; color: var(--text-accent); text-transform: uppercase; }
+        .value { font-size: 10vw; font-weight: bold; line-height: 1.1; }
+        .unit { font-size: 16px; color: var(--text-dim); }
+        #status { color: var(--text-warn); font-size: 14px; font-weight: bold; }
+        
+        #logConsole {
+            height: 130px;
+            background: #050505;
+            color: #888;
+            font-size: 11px;
+            padding: 8px;
+            overflow-y: auto;
+            border-top: 2px solid var(--text-dim);
+        }
     </style>
 </head>
 <body>
 
 <header>
     <div id="status">USB НЕ АКТИВИРОВАН</div>
-    <button id="connectBtn">АКТИВИРОВАТЬ</button>
+    <button id="connectBtn">АКТИВИРОВАТЬ USB</button>
 </header>
 
 <div class="grid">
     <div class="card card-full">
-        <div class="title">ТОПЛИВО</div>
-        <div id="fuelVal" class="value">--</div>
+        <div class="title">Остаток в баке (45L MAX)</div>
+        <div class="value" id="fuelVal">--</div>
+        <div class="unit">ЛИТРОВ</div>
     </div>
+
     <div class="card">
-        <div class="title">ОБОРОТЫ</div>
-        <div id="rpmVal" class="value">0</div>
+        <div class="title">Обороты</div>
+        <div class="value" style="color: var(--text-main);" id="rpmVal">0</div>
+        <div class="unit">RPM</div>
     </div>
+
     <div class="card">
-        <div class="title">ТЕМП.</div>
-        <div id="tempVal" class="value">--</div>
+        <div class="title">Температура</div>
+        <div class="value" id="tempVal">--</div>
+        <div class="unit">°C</div>
     </div>
+
     <div class="card">
-        <div class="title">СКОРОСТЬ</div>
-        <div id="speedVal" class="value">0</div>
+        <div class="title">Скорость</div>
+        <div class="value" style="color: var(--text-main);" id="speedVal">0</div>
+        <div class="unit">КМ/Ч</div>
     </div>
+
     <div class="card">
-        <div class="title">ОДОМЕТР</div>
-        <div id="odoVal" class="value" style="font-size: 5vw;">------</div>
+        <div class="title">Расход</div>
+        <div class="value" id="consVal">0.0</div>
+        <div class="unit" id="consUnit">Л / Ч</div>
+    </div>
+
+    <div class="card">
+        <div class="title">Пробег (ЭБУ)</div>
+        <div class="value" style="font-size: 6vw;" id="odoVal">------</div>
+        <div class="unit">КМ</div>
+    </div>
+
+    <div class="card">
+        <div class="title">Суточный пробег</div>
+        <div class="value" style="font-size: 6vw;" id="tripVal">0.0</div>
+        <div class="unit">КМ</div>
+        <button id="resetTripBtn" style="margin-top: 5px; padding: 5px 10px; font-size: 12px; border: 1px solid var(--text-dim); background: transparent; color: var(--text-dim); cursor: pointer;">СБРОС</button>
     </div>
 </div>
 
-<div id="logConsole">Инициализация...</div>
+<div id="logConsole">Ожидание подключения USB...</div>
 
 <script>
+    // Настройки авто
     const TANK_VOLUME = 45.0;
-    let device, isConnected = false;
-    let buffer = '';
-    let commandQueue = ['010C', '0105', '010D', '012F', '22DD01']; 
+    const FUEL_MAGIC_NUMBER = 0.335;
+
+    let device;
+    let isConnected = false;
+    
+    // Очередь команд: Обороты, Температура, Скорость, MAF, Топливо, OBD Пробег, Ford Пробег
+    let commandQueue = ['010C', '0105', '010D', '0110', '012F', '0131', '22DD01']; 
     let cmdIndex = 0;
+    let buffer = '';
+    
+    let currentSpeed = 0;
+    let lastTime = Date.now();
+    let tripDistance = parseFloat(localStorage.getItem('tripDistance')) || 0.0;
 
     const els = {
         status: document.getElementById('status'),
-        log: document.getElementById('logConsole'),
         connectBtn: document.getElementById('connectBtn'),
         fuel: document.getElementById('fuelVal'),
         rpm: document.getElementById('rpmVal'),
         temp: document.getElementById('tempVal'),
         speed: document.getElementById('speedVal'),
-        odo: document.getElementById('odoVal')
+        cons: document.getElementById('consVal'),
+        consUnit: document.getElementById('consUnit'),
+        odo: document.getElementById('odoVal'),
+        trip: document.getElementById('tripVal'),
+        resetTrip: document.getElementById('resetTripBtn'),
+        log: document.getElementById('logConsole')
     };
 
-    function writeLog(msg, color = '#888') {
-        els.log.innerHTML += `<div><span style="color:${color}">${msg}</span></div>`;
+    // Функция ожидания
+    const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+    function writeLog(msg, isRaw = false) {
+        const time = new Date().toLocaleTimeString();
+        const color = isRaw ? '#0f0' : '#888';
+        els.log.innerHTML += `<div><span style="color:#444">[${time}]</span> <span style="color:${color}">${msg}</span></div>`;
         els.log.scrollTop = els.log.scrollHeight;
-        if (els.log.childElementCount > 50) els.log.removeChild(els.log.firstChild);
+        if (els.log.childElementCount > 60) els.log.removeChild(els.log.firstChild);
     }
 
+    els.trip.innerText = tripDistance.toFixed(1);
+
+    els.resetTrip.addEventListener('click', () => {
+        tripDistance = 0.0;
+        localStorage.setItem('tripDistance', tripDistance);
+        els.trip.innerText = '0.0';
+        writeLog("Суточный пробег сброшен");
+    });
+
+    // --- ЛОГИКА USB ---
     els.connectBtn.addEventListener('click', async () => {
         try {
-            device = await navigator.usb.requestDevice({ filters: [{ vendorId: 0x0403, productId: 0x6001 }] });
+            device = await navigator.usb.requestDevice({ 
+                filters: [{ vendorId: 0x0403, productId: 0x6001 }] 
+            });
+
             await device.open();
-            await device.selectConfiguration(1);
+            if (device.configuration === null) await device.selectConfiguration(1);
             await device.claimInterface(0);
 
-            // Скорость порта 38400 для ELS27
+            // Настройка FTDI (Baudrate 38400)
             await device.controlTransferOut({
                 requestType: 'vendor', recipient: 'device',
                 request: 0x03, value: 0x4138, index: 0x0000 
             });
 
-            isConnected = true;
-            els.status.innerText = "ПОДКЛЮЧЕНО";
+            els.status.innerText = "ПОДКЛЮЧЕНО: " + (device.productName || "АДАПТЕР");
+            els.status.style.color = "var(--text-main)";
             els.connectBtn.style.display = "none";
+            isConnected = true;
+
+            writeLog("USB подключен. Настройка адаптера...");
+            startReading(); 
             
-            startReading();
-            
-            writeLog(">>> ИНИЦИАЛИЗАЦИЯ ШИНЫ FORD...", "#0ff");
-            await sendOBD("ATZ"); await new Promise(r => setTimeout(r, 1000));
-            await sendOBD("ATE0"); await new Promise(r => setTimeout(r, 500));
-            await sendOBD("ATL0"); // Убираем перенос строк
-            await sendOBD("ATSP6"); // ПРИНУДИТЕЛЬНО CAN (Ford)
-            await new Promise(r => setTimeout(r, 500));
-            await sendOBD("0100"); // Тестовый запрос протокола
-            await new Promise(r => setTimeout(r, 1000));
-            
+            // ЖЕЛЕЗОБЕТОННАЯ ИНИЦИАЛИЗАЦИЯ
+            // 1. Просыпаемся (несколько раз Enter)
+            await sendOBD("\r\r");
+            await sleep(500);
+
+            // 2. Полный сброс
+            writeLog("Сброс (ATZ)...");
+            await sendOBD("ATZ");
+            await sleep(1500);
+
+            // 3. Отключаем эхо и ставим протокол Ford CAN
+            writeLog("Настройка протокола...");
+            await sendOBD("ATE0"); await sleep(500);
+            await sendOBD("ATS0"); await sleep(300); // Без пробелов
+            await sendOBD("ATH1"); await sleep(300); // Заголовки ВКЛ (нужно для одометра)
+            await sendOBD("ATSP6"); await sleep(1000); // Фиксируем ISO 15765-4 (CAN 11/500)
+
+            // 4. Проверка связи с ЭБУ
+            writeLog("Синхронизация с ЭБУ...");
+            await sendOBD("0100");
+            await sleep(1000); 
+
+            writeLog("СИСТЕМА ГОТОВА. Старт опроса датчиков...");
             pollCycle();
-        } catch (e) { writeLog("ОШИБКА: " + e.message, "red"); }
+
+        } catch (err) {
+            els.status.innerText = "ОШИБКА USB";
+            writeLog("ОШИБКА: " + err.message);
+        }
     });
 
     async function sendOBD(cmd) {
         if (!isConnected) return;
-        writeLog("SEND: " + cmd, "#444");
-        await device.transferOut(2, new TextEncoder().encode(cmd + '\r'));
+        const data = new TextEncoder().encode(cmd + '\r');
+        await device.transferOut(2, data); 
     }
 
     async function startReading() {
         while (isConnected) {
             try {
-                const result = await device.transferIn(1, 64);
-                buffer += new TextDecoder().decode(result.data);
+                const result = await device.transferIn(1, 64); 
+                const text = new TextDecoder().decode(result.data);
+                buffer += text;
+
                 if (buffer.includes('>')) {
-                    let resp = buffer.replace('>', '').trim();
-                    if(resp) {
-                        writeLog("RESP: " + resp, "#0f0");
-                        processData(resp);
+                    let cleanResponse = buffer.replace('>', '').trim();
+                    if(cleanResponse.length > 0) {
+                        writeLog("> " + cleanResponse, true); 
+                        processResponse(cleanResponse);
                     }
-                    buffer = '';
+                    buffer = ''; 
                 }
-            } catch (e) { isConnected = false; break; }
+            } catch (err) {
+                isConnected = false;
+                els.status.innerText = "СВЯЗЬ ПОТЕРЯНА";
+                writeLog("ОШИБКА ЧТЕНИЯ");
+                break;
+            }
         }
     }
 
     function pollCycle() {
         if (!isConnected) return;
-        sendOBD(commandQueue[cmdIndex]);
+        
+        let cmd = commandQueue[cmdIndex];
+        sendOBD(cmd);
+        // writeLog("CMD: " + cmd); // Можно раскомментировать для отладки
+        
         cmdIndex = (cmdIndex + 1) % commandQueue.length;
-        setTimeout(pollCycle, 600); // 600мс для стабильности
+        setTimeout(pollCycle, 500); 
     }
 
-    function processData(hex) {
-        hex = hex.replace(/\s+/g, '').toUpperCase();
-        if (hex.includes('CANERROR') || hex.includes('STOPPED')) {
-            writeLog("ОШИБКА ШИНЫ. ПЕРЕПОДКЛЮЧЕНИЕ...", "orange");
-            sendOBD("ATSP6");
+    // --- ОБРАБОТКА ДАННЫХ ---
+    function processResponse(hexStr) {
+        // Убираем лишнее для парсинга
+        hexStr = hexStr.replace(/\s+/g, '').toUpperCase();
+        
+        if (hexStr.includes('CANERROR') || hexStr.includes('STOPPED') || hexStr.includes('SEARCHING')) {
+            writeLog("ШИНА ЗАНЯТА ИЛИ ОШИБКА. ЖДЕМ...", false);
             return;
         }
 
-        // Обороты
-        if (hex.includes('410C')) {
-            let i = hex.indexOf('410C') + 4;
-            els.rpm.innerText = Math.round((parseInt(hex.substr(i, 4), 16)) / 4);
+        // Обороты (010C)
+        if (hexStr.includes('410C')) {
+            let idx = hexStr.indexOf('410C') + 4;
+            let a = parseInt(hexStr.substring(idx, idx + 2), 16);
+            let b = parseInt(hexStr.substring(idx + 2, idx + 4), 16);
+            if (!isNaN(a) && !isNaN(b)) {
+                els.rpm.innerText = Math.round(((a * 256) + b) / 4);
+            }
         }
-        // Температура
-        if (hex.includes('4105')) {
-            els.temp.innerText = parseInt(hex.substr(hex.indexOf('4105') + 4, 2), 16) - 40;
+
+        // Температура (0105)
+        if (hexStr.includes('4105')) {
+            let idx = hexStr.indexOf('4105') + 4;
+            let val = parseInt(hexStr.substring(idx, idx + 2), 16);
+            if (!isNaN(val)) els.temp.innerText = val - 40;
         }
-        // Скорость
-        if (hex.includes('410D')) {
-            els.speed.innerText = parseInt(hex.substr(hex.indexOf('410D') + 4, 2), 16);
+
+        // Скорость (010D)
+        if (hexStr.includes('410D')) {
+            let idx = hexStr.indexOf('410D') + 4;
+            let val = parseInt(hexStr.substring(idx, idx + 2), 16);
+            if (!isNaN(val)) {
+                currentSpeed = val;
+                els.speed.innerText = currentSpeed;
+                
+                let now = Date.now();
+                let hours = (now - lastTime) / 3600000;
+                if (hours > 0 && hours < 1) { // Защита от скачков времени
+                    tripDistance += (currentSpeed * hours);
+                    localStorage.setItem('tripDistance', tripDistance);
+                    els.trip.innerText = tripDistance.toFixed(1);
+                }
+                lastTime = now;
+            }
         }
-        // Одометр Ford (22DD01 -> 62DD01)
-        if (hex.includes('62DD01')) {
-            let i = hex.indexOf('62DD01') + 6;
-            els.odo.innerText = parseInt(hex.substr(i, 6), 16) + " KM";
+        
+        // Расход (MAF - 0110)
+        if (hexStr.includes('4110')) {
+            let idx = hexStr.indexOf('4110') + 4;
+            let maf = (parseInt(hexStr.substring(idx, idx + 4), 16)) / 100;
+            if (!isNaN(maf)) {
+                let lph = maf * FUEL_MAGIC_NUMBER;
+                if (currentSpeed > 5) {
+                    let lp100 = (lph / currentSpeed) * 100;
+                    els.cons.innerText = Math.min(lp100, 99).toFixed(1);
+                    els.consUnit.innerText = "Л/100КМ";
+                } else {
+                    els.cons.innerText = lph.toFixed(1);
+                    els.consUnit.innerText = "Л/Ч";
+                }
+            }
         }
-        // Бак
-        if (hex.includes('412F')) {
-            let level = parseInt(hex.substr(hex.indexOf('412F') + 4, 2), 16) / 255;
-            els.fuel.innerText = (TANK_VOLUME * level).toFixed(1) + " L";
+
+        // Бак (012F)
+        if (hexStr.includes('412F')) {
+            let idx = hexStr.indexOf('412F') + 4;
+            let val = parseInt(hexStr.substring(idx, idx + 2), 16);
+            if (!isNaN(val)) {
+                let level = val / 255;
+                let liters = TANK_VOLUME * level;
+                els.fuel.innerText = liters.toFixed(1);
+                els.fuel.style.color = (liters < 7) ? "var(--text-warn)" : "var(--text-main)";
+            }
+        }
+
+        // Одометр (Стандартный 0131)
+        if (hexStr.includes('4131')) {
+            let idx = hexStr.indexOf('4131') + 4;
+            let val = parseInt(hexStr.substring(idx, idx + 8), 16);
+            if (!isNaN(val)) els.odo.innerText = val;
+        }
+
+        // Одометр (Ford Enhanced 22DD01)
+        if (hexStr.includes('62DD01')) {
+            let idx = hexStr.indexOf('62DD01') + 6;
+            let val = parseInt(hexStr.substring(idx, idx + 6), 16);
+            if (!isNaN(val)) els.odo.innerText = val;
         }
     }
 </script>
