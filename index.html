@@ -3,151 +3,139 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>X-CONECT: FORD MOBILE</title>
+    <title>X-CONECT: FORD PRO</title>
     <style>
-        body { background: #000; color: #0f0; font-family: monospace; margin: 0; padding: 10px; text-align: center; overflow-x: hidden; }
-        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 20px; }
-        .card { border: 1px solid #333; padding: 15px; border-radius: 10px; background: #050505; box-shadow: 0 0 10px rgba(0,255,0,0.1); }
+        body { background: #000; color: #0f0; font-family: monospace; margin: 0; padding: 10px; text-align: center; }
+        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 15px; }
+        .card { border: 1px solid #333; padding: 15px; border-radius: 10px; background: #050505; }
         .val { font-size: 2.2em; display: block; color: #0f0; font-weight: bold; }
-        .label { font-size: 0.75em; color: #00bcff; text-transform: uppercase; letter-spacing: 1px; }
-        #log { height: 120px; overflow-y: auto; border: 1px solid #222; margin-top: 15px; font-size: 11px; text-align: left; padding: 8px; color: #888; background: #0a0a0a; }
-        button { background: #0f0; border: none; color: #000; padding: 18px; font-size: 1.1em; border-radius: 10px; cursor: pointer; width: 100%; font-weight: bold; margin-bottom: 10px; }
-        button:active { background: #00bcff; }
+        .label { font-size: 0.75em; color: #00bcff; text-transform: uppercase; }
+        #log { height: 100px; overflow-y: auto; border: 1px solid #222; margin-top: 15px; font-size: 10px; text-align: left; padding: 5px; color: #666; background: #080808; }
+        button { background: #0f0; border: none; color: #000; padding: 15px; font-size: 1em; border-radius: 10px; cursor: pointer; width: 100%; font-weight: bold; }
         .full-width { grid-column: span 2; }
     </style>
 </head>
 <body>
 
-    <div id="header">
-        <h2 style="color: #ff3c00; margin: 5px; letter-spacing: 2px;">X-CONECT SYSTEM</h2>
-        <button id="connectBtn">ПОДКЛЮЧИТЬ ELS27 (USB)</button>
-    </div>
+    <h2 style="color: #ff3c00; margin: 5px;">X-CONECT SYSTEM</h2>
+    <button id="connectBtn">ПОДКЛЮЧИТЬ USB</button>
 
     <div class="grid">
         <div class="card full-width">
-            <span class="label">Пробег (ODO)</span>
+            <span class="label">Одометр</span>
             <span id="odo" class="val">--- ---</span>
         </div>
-        
         <div class="card">
-            <span class="label">Бак (Литры)</span>
+            <span class="label">Бензин (Л)</span>
             <span id="fuel" class="val">--</span>
         </div>
-
         <div class="card">
             <span class="label">Мотор (°C)</span>
             <span id="temp" class="val">--</span>
         </div>
-
         <div class="card">
             <span class="label">Скорость</span>
-            <span id="speed" class="val">0<small style="font-size: 0.5em"> км/ч</small></span>
+            <span id="speed" class="val">0</span>
         </div>
-
         <div class="card">
             <span class="label">Обороты</span>
             <span id="rpm" class="val">0</span>
         </div>
     </div>
 
-    <div id="log">Ожидание USB соединения...</div>
+    <div id="log">Система готова...</div>
 
     <script>
         const logDiv = document.getElementById('log');
-        const connectBtn = document.getElementById('connectBtn');
         let device;
-        const sleep = ms => new Promise(res => setTimeout(res, ms));
+        let isRunning = false;
 
         function log(msg) {
-            const time = new Date().toLocaleTimeString();
-            logDiv.innerHTML += `[${time}] ${msg}<br>`;
+            logDiv.innerHTML += `> ${msg}<br>`;
             logDiv.scrollTop = logDiv.scrollHeight;
         }
 
-        connectBtn.addEventListener('click', async () => {
+        document.getElementById('connectBtn').addEventListener('click', async () => {
             try {
-                device = await navigator.usb.requestDevice({ 
-                    filters: [{ vendorId: 0x0403, productId: 0x6001 }] 
-                });
+                device = await navigator.usb.requestDevice({ filters: [{ vendorId: 0x0403 }] });
                 await device.open();
                 await device.selectConfiguration(1);
                 await device.claimInterface(0);
-                await setupFTDI(38400);
-                log("USB ПОДКЛЮЧЕНО. ИНИЦИАЛИЗАЦИЯ...");
-                await initELM();
-            } catch (err) {
-                log("ОШИБКА: " + err);
-            }
+                
+                // Настройка FTDI
+                let divisor = Math.floor(3000000 / 38400);
+                await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x03, value: divisor, index: 0 });
+
+                log("ПОДКЛЮЧЕНО. ИНИЦИАЛИЗАЦИЯ...");
+                await send("ATZ");
+                await sleep(500);
+                await send("ATE0");
+                await send("ATSP6"); // CAN
+                await send("ATH1");
+                
+                isRunning = true;
+                mainLoop();
+            } catch (err) { log("ОШИБКА: " + err); }
         });
 
-        async function setupFTDI(baud) {
-            let divisor = Math.floor(3000000 / baud);
-            await device.controlTransferOut({
-                requestType: 'vendor', recipient: 'device', request: 0x03, value: divisor, index: 0
-            });
-        }
-
-        async function sendCommand(cmd) {
+        async function send(cmd) {
             try {
-                let data = new TextEncoder().encode(cmd + "\r");
-                await device.transferOut(2, data);
-                await sleep(350); 
-                let result = await device.transferIn(1, 128);
-                let text = new TextDecoder().decode(result.data).trim();
-                return text.replace(/\s/g, ''); // Убираем все пробелы сразу
+                await device.transferOut(2, new TextEncoder().encode(cmd + "\r"));
+                await sleep(150);
+                let res = await device.transferIn(1, 128);
+                return new TextDecoder().decode(res.data).replace(/\s/g, '');
             } catch (e) { return ""; }
         }
 
-        async function initELM() {
-            await sendCommand("ATZ");
-            await sleep(500);
-            await sendCommand("ATE0");
-            await sendCommand("ATH1");
-            await sendCommand("ATSP6"); 
-            log("ПРОТОКОЛ УСТАНОВЛЕН. ПОИСК ДАННЫХ...");
-            startPolling();
-        }
+        function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
-        function startPolling() {
-            setInterval(async () => {
-                // Обороты (Стандарт)
-                let rRPM = await sendCommand("010C");
+        async function mainLoop() {
+            let slowDataCounter = 0;
+            
+            while (isRunning) {
+                // 1. СКОРЫЕ ДАННЫЕ (Обороты и скорость - высокий приоритет)
+                let rRPM = await send("010C");
                 if (rRPM.includes("410C")) {
-                    let a = parseInt(rRPM.substr(rRPM.indexOf("410C")+4, 2), 16);
-                    let b = parseInt(rRPM.substr(rRPM.indexOf("410C")+6, 2), 16);
+                    let idx = rRPM.indexOf("410C") + 4;
+                    let a = parseInt(rRPM.substr(idx, 2), 16);
+                    let b = parseInt(rRPM.substr(idx + 2, 2), 16);
                     document.getElementById('rpm').innerText = Math.round(((a * 256) + b) / 4);
                 }
 
-                // Температура (Стандарт)
-                let rTemp = await sendCommand("0105");
-                if (rTemp.includes("4105")) {
-                    let t = parseInt(rTemp.substr(rTemp.indexOf("4105")+4, 2), 16) - 40;
-                    document.getElementById('temp').innerText = t;
-                }
-
-                // Скорость (Стандарт)
-                let rSpeed = await sendCommand("010D");
+                let rSpeed = await send("010D");
                 if (rSpeed.includes("410D")) {
-                    let s = parseInt(rSpeed.substr(rSpeed.indexOf("410D")+4, 2), 16);
-                    document.getElementById('speed').innerHTML = s + '<small style="font-size: 0.5em"> км/ч</small>';
+                    document.getElementById('speed').innerText = parseInt(rSpeed.substr(rSpeed.indexOf("410D") + 4, 2), 16);
                 }
 
-                // Топливо (Ford PID)
-                let rFuel = await sendCommand("22042C");
-                if (rFuel.includes("62042C")) {
-                    let raw = parseInt(rFuel.substr(rFuel.indexOf("62042C")+6, 2), 16);
-                    let liters = Math.round((raw * 52) / 255); 
-                    document.getElementById('fuel').innerText = liters;
+                // 2. СРЕДНИЕ ДАННЫЕ (Температура - раз в 3 итерации)
+                if (slowDataCounter % 3 === 0) {
+                    let rTemp = await send("0105");
+                    if (rTemp.includes("4105")) {
+                        document.getElementById('temp').innerText = parseInt(rTemp.substr(rTemp.indexOf("4105") + 4, 2), 16) - 40;
+                    }
                 }
 
-                // Пробег (Ford PID - Dash)
-                let rOdo = await sendCommand("2204FE");
-                if (rOdo.includes("6204FE")) {
-                    let hex = rOdo.substr(rOdo.indexOf("6204FE")+6, 6);
-                    let km = parseInt(hex, 16);
-                    if (!isNaN(km)) document.getElementById('odo').innerText = km.toLocaleString() + " км";
+                // 3. ТЯЖЕЛЫЕ ДАННЫЕ (Пробег и бак - раз в 10 итераций)
+                if (slowDataCounter % 10 === 0) {
+                    // Бак (через PCM)
+                    let rFuel = await send("22042C");
+                    if (rFuel.includes("62042C")) {
+                        let f = parseInt(rFuel.substr(rFuel.indexOf("62042C") + 6, 2), 16);
+                        document.getElementById('fuel').innerText = Math.round((f * 52) / 255);
+                    }
+
+                    // Одометр (через приборку Ford)
+                    let rOdo = await send("2204FE");
+                    if (rOdo.includes("6204FE")) {
+                        let val = parseInt(rOdo.substr(rOdo.indexOf("6204FE") + 6, 6), 16);
+                        if (!isNaN(val)) document.getElementById('odo').innerText = val.toLocaleString();
+                    }
                 }
-            }, 1000);
+
+                slowDataCounter++;
+                if (slowDataCounter > 100) slowDataCounter = 0;
+                await sleep(50); // Короткая пауза для стабильности
+            }
         }
     </script>
 </body>
