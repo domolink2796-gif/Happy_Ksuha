@@ -137,7 +137,8 @@
     let device;
     let isConnected = false;
     
-    let commandQueue = ['010C', '0105', '010D', '0110', '012F', '0131', '22DD01']; 
+    // Очередь команд: Обороты, Темп, Скорость, Расход, Бак, Одометр
+    let commandQueue = ['010C', '0105', '010D', '0110', '012F', '0131']; 
     let cmdIndex = 0;
     let buffer = '';
     
@@ -189,6 +190,7 @@
             if (device.configuration === null) await device.selectConfiguration(1);
             await device.claimInterface(0);
 
+            // FTDI Baudrate 38400
             await device.controlTransferOut({
                 requestType: 'vendor', recipient: 'device',
                 request: 0x03, value: 0x4138, index: 0x0000 
@@ -199,22 +201,20 @@
             els.connectBtn.style.display = "none";
             isConnected = true;
 
-            writeLog("USB OK. Инициализация протокола Ford...");
+            writeLog("USB OK. Инициализация...");
             startReading(); 
             
-            // ЖЕСТКАЯ НАСТРОЙКА ЧТОБЫ НЕ ВИСЛО
             await sendOBD("\r\r"); await sleep(200);
-            await sendOBD("ATZ"); await sleep(1000); // Сброс
-            await sendOBD("ATE0"); await sleep(200); // Эхо выкл
-            await sendOBD("ATH1"); await sleep(200); // Заголовки вкл
-            await sendOBD("ATSP6"); await sleep(500); // ФИКСАЦИЯ ПРОТОКОЛА CAN (11/500)
-            await sendOBD("ATCAF1"); await sleep(200); // Авто-формат CAN
+            await sendOBD("ATZ"); await sleep(1000); 
+            await sendOBD("ATE0"); await sleep(200); 
+            await sendOBD("ATH1"); await sleep(200); 
+            await sendOBD("ATSP6"); await sleep(500); 
             
             writeLog("Синхронизация с ЭБУ...");
-            await sendOBD("0100"); await sleep(800); 
+            await sendOBD("0100"); await sleep(1000); 
 
-            writeLog("СИСТЕМА ГОТОВА");
-            pollCycle();
+            writeLog("СИСТЕМА ГОТОВА. ЗАПУСК ОПРОСА...");
+            pollCycle(); // Принудительный старт
 
         } catch (err) {
             els.status.innerText = "ОШИБКА USB";
@@ -255,15 +255,19 @@
         let cmd = commandQueue[cmdIndex];
         sendOBD(cmd);
         cmdIndex = (cmdIndex + 1) % commandQueue.length;
-        setTimeout(pollCycle, 600); 
+        // Задержка 800мс для стабильности на Ford
+        setTimeout(pollCycle, 800); 
     }
 
     function processResponse(hexStr) {
         hexStr = hexStr.replace(/\s+/g, '').toUpperCase();
         
-        if (hexStr.includes('SEARCHING') || hexStr.includes('CANERROR')) return;
+        if (hexStr.includes('SEARCHING') || hexStr.includes('CANERROR') || hexStr.includes('NODATA')) {
+            buffer = ''; // Очистка при ошибках
+            return;
+        }
 
-        // Обороты
+        // RPM (010C)
         if (hexStr.includes('410C')) {
             let idx = hexStr.indexOf('410C') + 4;
             let a = parseInt(hexStr.substring(idx, idx + 2), 16);
@@ -271,14 +275,14 @@
             if (!isNaN(a) && !isNaN(b)) els.rpm.innerText = Math.round(((a * 256) + b) / 4);
         }
 
-        // Температура
+        // TEMP (0105)
         if (hexStr.includes('4105')) {
             let idx = hexStr.indexOf('4105') + 4;
             let val = parseInt(hexStr.substring(idx, idx + 2), 16);
             if (!isNaN(val)) els.temp.innerText = val - 40;
         }
 
-        // Скорость
+        // SPEED (010D)
         if (hexStr.includes('410D')) {
             let idx = hexStr.indexOf('410D') + 4;
             let val = parseInt(hexStr.substring(idx, idx + 2), 16);
@@ -294,23 +298,7 @@
             }
         }
         
-        // MAF / Расход
-        if (hexStr.includes('4110')) {
-            let idx = hexStr.indexOf('4110') + 4;
-            let maf = (parseInt(hexStr.substring(idx, idx + 4), 16)) / 100;
-            if (!isNaN(maf)) {
-                let lph = maf * FUEL_MAGIC_NUMBER;
-                if (currentSpeed > 5) {
-                    els.cons.innerText = ((lph / currentSpeed) * 100).toFixed(1);
-                    els.consUnit.innerText = "Л/100КМ";
-                } else {
-                    els.cons.innerText = lph.toFixed(1);
-                    els.consUnit.innerText = "Л/Ч";
-                }
-            }
-        }
-
-        // Бак
+        // FUEL LEVEL (012F)
         if (hexStr.includes('412F')) {
             let idx = hexStr.indexOf('412F') + 4;
             let val = parseInt(hexStr.substring(idx, idx + 2), 16);
@@ -320,10 +308,10 @@
             }
         }
 
-        // Одометр
-        if (hexStr.includes('62DD01')) {
-            let idx = hexStr.indexOf('62DD01') + 6;
-            let val = parseInt(hexStr.substring(idx, idx + 6), 16);
+        // ODOMETER (0131)
+        if (hexStr.includes('4131')) {
+            let idx = hexStr.indexOf('4131') + 4;
+            let val = parseInt(hexStr.substring(idx, idx + 4), 16);
             if (!isNaN(val)) els.odo.innerText = val;
         }
     }
