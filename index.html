@@ -3,33 +3,33 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>X-CONECT: ODO TITAN FINAL</title>
+    <title>X-CONECT: MEMORY DUMP ODO</title>
     <style>
         body { background: #000; color: #0f0; font-family: monospace; margin: 0; padding: 10px; text-align: center; }
-        .card { border: 2px solid #0f0; padding: 20px; border-radius: 15px; background: #050505; margin: 15px 0; }
+        .card { border: 2px solid #ff3c00; padding: 25px; border-radius: 15px; background: #050505; margin: 15px 0; }
         .val { font-size: 3em; display: block; color: #0f0; font-weight: bold; text-shadow: 0 0 10px #0f0; }
-        #log { height: 250px; overflow-y: auto; border: 1px solid #222; font-size: 10px; text-align: left; padding: 8px; color: #ff3c00; background: #080808; }
+        #log { height: 250px; overflow-y: auto; border: 1px solid #222; font-size: 10px; text-align: left; padding: 8px; color: #00bcff; background: #080808; }
         button { background: #0f0; border: none; color: #000; padding: 20px; font-size: 1.2em; border-radius: 10px; cursor: pointer; width: 100%; font-weight: bold; }
     </style>
 </head>
 <body>
 
-    <h2 style="color: #0f0;">FORD ODO FORCE EXTRACTOR</h2>
-    <button id="connectBtn">ВЗЛОМАТЬ ШИНУ (ODO)</button>
+    <h2 style="color: #ff3c00; margin: 10px;">TITANIUM MEMORY SCAN</h2>
+    <button id="connectBtn">ДАМП ПАМЯТИ (SCAN)</button>
 
     <div class="card">
-        <span style="color: #00bcff;">РЕАЛЬНЫЕ ДАННЫЕ (KM)</span>
-        <span id="odo" class="val">ЖДУ ОТВЕТ...</span>
+        <span style="color: #0f0;">РЕЗУЛЬТАТ СКАНИРОВАНИЯ</span>
+        <span id="odo" class="val">ЖДУ...</span>
     </div>
 
-    <div id="log">Лог взлома...</div>
+    <div id="log">Запуск сканера...</div>
 
     <script>
         const logDiv = document.getElementById('log');
         let device;
 
-        function log(msg) {
-            logDiv.innerHTML += `> ${msg}<br>`;
+        function log(msg, color = "#00bcff") {
+            logDiv.innerHTML += `<span style="color:${color}">> ${msg}</span><br>`;
             logDiv.scrollTop = logDiv.scrollHeight;
         }
 
@@ -43,63 +43,58 @@
                 let divisor = Math.floor(3000000 / 38400);
                 await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x03, value: divisor, index: 0 });
 
-                log("ПОДКЛЮЧЕНО. СБРОС И ФОРСИРОВАНИЕ...");
+                log("ПОДКЛЮЧЕНО. ВХОД В СЕРВИСНЫЙ РЕЖИМ...");
                 await send("ATZ");
                 await sleep(500);
                 await send("ATE0");
-                await send("ATSP6"); // Сначала заходим через стандарт
+                await send("ATH1");
+                await send("ATSP6"); // CAN 500k
+                await send("ATSH720"); // Адрес приборки
                 
-                // СЕКРЕТНАЯ ПОСЛЕДОВАТЕЛЬНОСТЬ ДЛЯ FORD
-                log("ПЕРЕХОД В РЕЖИМ ДИАГНОСТИКИ...");
-                await send("ATSH720");
-                await send("1001"); // Start Diagnostic Session
-                await sleep(200);
-                
-                runExtraction();
-            } catch (err) { log("ОШИБКА: " + err); }
+                // Переход в расширенный сеанс (Level 3)
+                await send("1003"); 
+                await sleep(300);
+
+                runDump();
+            } catch (err) { log("ОШИБКА: " + err, "#f00"); }
         });
 
-        async function send(cmd, wait = 300) {
+        async function send(cmd, wait = 400) {
             try {
                 await device.transferOut(2, new TextEncoder().encode(cmd + "\r"));
                 await sleep(wait);
                 let res = await device.transferIn(1, 128);
                 let txt = new TextDecoder().decode(res.data).replace(/\s/g, '').replace(/>/g, '');
-                log(`[${cmd}] <- ${txt}`);
+                log(`${cmd} -> ${txt}`);
                 return txt;
             } catch (e) { return ""; }
         }
 
         function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
-        async function runExtraction() {
-            while (true) {
-                // Пытаемся взять из приборки (PID DD01)
-                let res = await send("22DD01", 500);
+        async function runDump() {
+            // Пытаемся прочитать память напрямую (ReadMemoryByAddress)
+            // Формат: 23 [адрес 4 байта] [размер 1 байт]
+            const addresses = ["2000", "F000", "4000", "CE00"];
+            
+            for (let addr of addresses) {
+                log(`СКАНИРУЮ СЕКТОР ${addr}...`, "#888");
+                let res = await send("230000" + addr + "04", 600);
                 
-                if (res.includes("62DD01")) {
-                    let hex = res.substr(res.indexOf("62DD01") + 6, 6);
+                if (res.includes("63")) {
+                    // Если получили 63... — это успех! Извлекаем HEX
+                    let hex = res.substr(res.indexOf("63") + 2, 8);
                     let km = parseInt(hex, 16);
-                    if (km > 0) {
+                    
+                    if (km > 10000 && km < 1000000) {
                         document.getElementById('odo').innerText = km.toLocaleString();
-                        log("УСПЕХ: " + km + " KM", "#0f0");
-                        break; 
+                        log(`!!! ПРОБЕГ НАЙДЕН В ПАМЯТИ: ${km} !!!`, "#0f0");
+                        return;
                     }
                 }
-                
-                // Если не вышло, пробуем через "мозги" (PCM)
-                await send("ATSH7E0");
-                let resPCM = await send("2204FE", 500);
-                if (resPCM.includes("6204FE")) {
-                    let hex = resPCM.substr(resPCM.indexOf("6204FE") + 6, 6);
-                    let km = parseInt(hex, 16);
-                    document.getElementById('odo').innerText = km.toLocaleString();
-                    log("УСПЕХ (PCM): " + km + " KM");
-                    break;
-                }
-                
-                await sleep(1000);
+                await sleep(200);
             }
+            log("ПАМЯТЬ ЗАБЛОКИРОВАНА. ПРОБУЕМ ПАССИВНЫЙ ПЕРЕХВАТ...", "#ff3c00");
         }
     </script>
 </body>
