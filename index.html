@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>X-CONECT: FORD MOBILE FIXED</title>
+    <title>X-CONECT: FORD MOBILE</title>
     <style>
         body { background: #000; color: #0f0; font-family: monospace; margin: 0; padding: 10px; text-align: center; overflow-x: hidden; }
         .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 20px; }
@@ -21,21 +21,19 @@
     <button id="connectBtn">ПОДКЛЮЧИТЬ FORD USB</button>
 
     <div class="grid">
-        <div class="card full-width">
-            <span class="label">Общий пробег (ODO)</span>
-            <span id="odo" class="val">---</span>
-            <span style="font-size: 0.8em; color: #555;">КМ</span>
-        </div>
-
         <div class="card">
             <span class="label">Обороты</span>
             <span id="rpm" class="val">0</span>
         </div>
 
         <div class="card">
-            <span class="label">Мотор</span>
+            <span class="label">Температура</span>
             <span id="temp" class="val">--</span>
-            <span style="font-size: 0.8em; color: #555;">°C</span>
+        </div>
+
+        <div class="card">
+            <span class="label">Бензин (Л)</span>
+            <span id="fuel" class="val">--</span>
         </div>
 
         <div class="card">
@@ -43,14 +41,13 @@
             <span id="speed" class="val">0</span>
         </div>
 
-        <div class="card">
-            <span class="label">Бензин</span>
-            <span id="fuel" class="val">--</span>
-            <span style="font-size: 0.8em; color: #555;">ЛИТРОВ</span>
+        <div class="card full-width">
+            <span class="label">Общий пробег</span>
+            <span id="odo" class="val">---</span>
         </div>
     </div>
 
-    <div id="log">Ожидание активации системы...</div>
+    <div id="log">Ожидание активации...</div>
 
     <script>
         const logDiv = document.getElementById('log');
@@ -58,9 +55,7 @@
         const sleep = ms => new Promise(res => setTimeout(res, ms));
 
         function log(msg) {
-            const now = new Date();
-            const time = now.getHours() + ":" + now.getMinutes() + ":" + now.getSeconds();
-            logDiv.innerHTML += `[${time}] ${msg}<br>`;
+            logDiv.innerHTML += `> ${msg}<br>`;
             logDiv.scrollTop = logDiv.scrollHeight;
         }
 
@@ -76,16 +71,14 @@
                     request: 0x03, value: 0x4138, index: 0
                 });
 
-                log("СВЯЗЬ УСТАНОВЛЕНА");
-                
-                await sendCommand("ATZ"); 
-                await sleep(1000);
+                log("ПОДКЛЮЧЕНО");
+                await sendCommand("ATZ");
+                await sleep(500);
                 await sendCommand("ATE0");
-                await sendCommand("ATSP6"); // Протокол CAN для Ford
+                await sendCommand("ATSP0"); // Оставляю как было в твоем файле
                 
-                log("СИСТЕМА ГОТОВА");
+                log("ОПРОС ЗАПУЩЕН");
                 startPolling();
-
             } catch (err) {
                 log("ОШИБКА: " + err);
             }
@@ -93,12 +86,10 @@
 
         async function sendCommand(cmd) {
             try {
-                const encoder = new TextEncoder();
-                await device.transferOut(2, encoder.encode(cmd + "\r"));
-                await sleep(250); // Увеличил для стабильности Ford
+                await device.transferOut(2, new TextEncoder().encode(cmd + "\r"));
+                await sleep(200); // Твоя рабочая задержка
                 let result = await device.transferIn(1, 64);
-                let text = new TextDecoder().decode(result.data);
-                return text.trim();
+                return new TextDecoder().decode(result.data);
             } catch (e) {
                 return "";
             }
@@ -106,29 +97,27 @@
 
         function startPolling() {
             setInterval(async () => {
-                // Обороты
+                // Твои рабочие команды
                 let resRPM = await sendCommand("010C");
                 parseRPM(resRPM);
 
-                // Температура
                 let resTemp = await sendCommand("0105");
                 parseData(resTemp, "4105", 'temp', 1, -40);
 
-                // Скорость
+                // Добавленные команды
                 let resSpeed = await sendCommand("010D");
                 parseData(resSpeed, "410D", 'speed', 1);
 
-                // Топливо
                 let resFuel = await sendCommand("012F");
                 parseFuel(resFuel);
 
-                // Пробег (ODO)
                 let resOdo = await sendCommand("0131");
                 parseOdo(resOdo);
 
-            }, 800);
+            }, 1000);
         }
 
+        // Твои рабочие функции парсинга
         function parseData(hex, pid, elementId, byteCount, offset = 0) {
             let clean = hex.replace(/\s/g, '');
             let index = clean.indexOf(pid);
@@ -149,13 +138,13 @@
             }
         }
 
+        // Добавленные функции парсинга
         function parseFuel(hex) {
             let clean = hex.replace(/\s/g, '');
             let index = clean.indexOf("412F");
             if (index !== -1) {
                 let raw = parseInt(clean.substr(index + 4, 2), 16);
-                // Расчет: (значение / 255) * 45 литров
-                let liters = Math.round((raw / 255) * 45);
+                let liters = Math.round((raw / 255) * 45); // Расчет на 45 литров
                 document.getElementById('fuel').innerText = liters;
             }
         }
@@ -164,11 +153,9 @@
             let clean = hex.replace(/\s/g, '');
             let index = clean.indexOf("4131");
             if (index !== -1) {
-                // PID 31 возвращает 2 байта дистанции
                 let a = parseInt(clean.substr(index + 4, 2), 16);
                 let b = parseInt(clean.substr(index + 6, 2), 16);
-                let distance = (a * 256) + b;
-                document.getElementById('odo').innerText = distance;
+                document.getElementById('odo').innerText = (a * 256) + b;
             }
         }
     </script>
