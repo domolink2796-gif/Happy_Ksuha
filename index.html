@@ -3,37 +3,41 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>X-CONECT: FUEL MONITOR</title>
+    <title>X-CONECT: FUEL FINAL</title>
     <style>
         body { background: #000; color: #0f0; font-family: monospace; margin: 0; padding: 10px; text-align: center; }
-        .fuel-box { border: 4px solid #00bcff; padding: 30px; border-radius: 20px; background: #050505; margin: 20px 0; box-shadow: 0 0 20px rgba(0,188,255,0.2); }
-        .fuel-val { font-size: 7em; display: block; color: #00bcff; font-weight: bold; text-shadow: 0 0 15px #00bcff; }
-        .unit { color: #00bcff; font-size: 1.5em; letter-spacing: 5px; }
-        #log { height: 180px; overflow-y: auto; border: 1px solid #1a1a1a; margin-top: 20px; font-size: 11px; text-align: left; padding: 10px; color: #555; background: #050505; }
-        button { background: #00bcff; border: none; color: #000; padding: 20px; font-size: 1.2em; border-radius: 15px; cursor: pointer; width: 100%; font-weight: bold; text-transform: uppercase; }
-        .status { font-size: 0.8em; color: #444; margin-bottom: 10px; }
+        .fuel-box { border: 4px solid #00bcff; padding: 30px; border-radius: 20px; background: #050505; margin: 20px 0; }
+        .fuel-val { font-size: 8em; display: block; color: #00bcff; font-weight: bold; }
+        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 20px; }
+        .card { border: 1px solid #222; padding: 15px; border-radius: 10px; background: #080808; }
+        .val { font-size: 2.5em; display: block; color: #0f0; }
+        #log { height: 120px; overflow-y: auto; border: 1px solid #1a1a1a; margin-top: 15px; font-size: 11px; text-align: left; padding: 8px; color: #444; }
+        button { background: #00bcff; border: none; color: #000; padding: 25px; font-size: 1.2em; border-radius: 15px; cursor: pointer; width: 100%; font-weight: bold; }
     </style>
 </head>
 <body>
 
-    <button id="connectBtn">ЗАПУСТИТЬ МОНИТОР БАКА</button>
+    <button id="connectBtn">ЗАПУСТИТЬ МОНИТОРИНГ</button>
 
     <div class="fuel-box">
-        <span class="unit">ТОПЛИВО</span>
+        <span style="color: #00bcff; font-size: 1em;">ТОПЛИВО В БАКЕ</span>
         <span id="fuel" class="fuel-val">--</span>
-        <span class="unit">ЛИТРОВ</span>
+        <span style="color: #00bcff; font-size: 1.5em;">ЛИТРОВ</span>
     </div>
 
-    <div class="status" id="status">Статус: Ожидание подключения...</div>
-    <div id="log">Лог системы перехвата...</div>
+    <div class="grid">
+        <div class="card"><span id="temp" class="val">--</span><span style="color:#666;">TEMP</span></div>
+        <div class="card"><span id="rpm" class="val">0</span><span style="color:#666;">RPM</span></div>
+    </div>
+
+    <div id="log">Ожидание данных...</div>
 
     <script>
         const logDiv = document.getElementById('log');
-        const statusDiv = document.getElementById('status');
         let device, isRunning = false;
 
-        function log(msg, color = "#555") {
-            logDiv.innerHTML += `<span style="color:${color}">> ${msg}</span><br>`;
+        function log(msg) {
+            logDiv.innerHTML += `> ${msg}<br>`;
             logDiv.scrollTop = logDiv.scrollHeight;
         }
 
@@ -44,59 +48,59 @@
                 await device.selectConfiguration(1);
                 await device.claimInterface(0);
                 
-                let divisor = Math.floor(3000000 / 38400);
+                // Устанавливаем скорость 500к для CAN
+                let divisor = Math.floor(3000000 / 500000); 
                 await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x03, value: divisor, index: 0 });
 
-                log("ПОДКЛЮЧЕНО К ШИНЕ", "#0f0");
-                statusDiv.innerText = "Статус: АНАЛИЗ ПАКЕТОВ...";
-                
+                log("СВЯЗЬ ОК. НАСТРОЙКА ФИЛЬТРОВ...");
                 await send("ATZ");
-                await send("ATE0");
-                await send("ATSP6"); // ISO 15765-4 (CAN 11/500)
-                await send("ATH1"); // Включаем заголовки, чтобы видеть кто шлет
-                await send("ATCAF0"); // Выключаем автоформатирование (чистый поток)
+                await send("ATSP6");
+                await send("ATH1"); 
+                // Ставим фильтр на адрес приборки (0x4C0 или 0x4B0), где лежат данные бака
+                await send("ATCF 400"); 
+                await send("ATCM F00");
 
                 isRunning = true;
-                monitorFuel();
-            } catch (err) { log("ОШИБКА: " + err, "#f00"); }
+                mainLoop();
+            } catch (err) { log("ОШИБКА: " + err); }
         });
 
         async function send(cmd, wait = 100) {
-            try {
-                await device.transferOut(2, new TextEncoder().encode(cmd + "\r"));
-                await sleep(wait);
-                let res = await device.transferIn(1, 128);
-                return new TextDecoder().decode(res.data).replace(/\s/g, '');
-            } catch (e) { return ""; }
+            await device.transferOut(2, new TextEncoder().encode(cmd + "\r"));
+            await sleep(wait);
+            let res = await device.transferIn(1, 128);
+            return new TextDecoder().decode(res.data).replace(/\s/g, '');
         }
 
         function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
-        async function monitorFuel() {
+        async function mainLoop() {
             while (isRunning) {
-                // Пытаемся мониторить конкретный адрес приборки в режиме прослушки (Monitor All)
-                // На Fusion данные о баке часто пролетают в пакетах 4C0 или 4B0
-                let raw = await send("ATMA", 500); // Команда мониторинга всей шины на полсекунды
+                // 1. Быстрый запрос оборотов
+                await send("ATSH 7E0", 20);
+                let rRPM = await send("010C", 50);
+                if (rRPM.includes("410C")) {
+                    let idx = rRPM.indexOf("410C") + 4;
+                    document.getElementById('rpm').innerText = Math.round(((parseInt(rRPM.substr(idx, 2), 16) * 256) + parseInt(rRPM.substr(idx + 2, 2), 16)) / 4);
+                }
+
+                // 2. Попытка вытянуть топливо через "пассивный" режим мониторинга конкретного сообщения
+                let raw = await send("ATMA", 300); // Слушаем 0.3 сек
                 
-                if (raw) {
-                    log("RAW DATA: " + raw.substring(0, 20) + "...");
-                    
-                    // Поиск паттерна топлива (экспериментально для твоей прошивки)
-                    // Обычно это 01 2F в потоке или специфический ID приборки
-                    if (raw.includes("4C0")) { 
-                        let pos = raw.indexOf("4C0");
-                        // Примерная логика парсинга байта из потока
-                        let fuelByte = raw.substr(pos + 10, 2); 
-                        let val = parseInt(fuelByte, 16);
-                        if (!isNaN(val)) {
-                            document.getElementById('fuel').innerText = Math.round(val * 45 / 255);
-                        }
+                // Если в потоке есть данные от ID 4C0 (Приборка Ford)
+                if (raw.includes("4C0")) {
+                    let pos = raw.indexOf("4C0") + 3;
+                    // Обычно 7-й или 8-й байт в этом пакете — это топливо
+                    let hexFuel = raw.substr(pos + 12, 2); 
+                    let val = parseInt(hexFuel, 16);
+                    if (!isNaN(val) && val <= 255) {
+                        document.getElementById('fuel').innerText = Math.round(val * 45 / 255);
                     }
                 }
                 
-                // Чтобы адаптер не завис в ATMA, сбрасываем его коротким запросом
-                await device.transferOut(2, new TextEncoder().encode("\r")); 
-                await sleep(100);
+                // Сброс монитора для следующего цикла
+                await device.transferOut(2, new TextEncoder().encode("\r"));
+                await sleep(50);
             }
         }
     </script>
