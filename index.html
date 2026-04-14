@@ -14,7 +14,6 @@
         button { background: #0f0; border: none; color: #000; padding: 18px; font-size: 1.1em; border-radius: 10px; cursor: pointer; width: 100%; font-weight: bold; margin-bottom: 10px; }
         button:active { background: #00bcff; }
         .full-width { grid-column: span 2; }
-        .unit { font-size: 0.4em; color: #555; margin-left: 5px; }
     </style>
 </head>
 <body>
@@ -72,7 +71,7 @@
                 });
 
                 await device.open();
-                log("USB УСТРОЙСТВО ПОДКЛЮЧЕНО");
+                log("USB ПОДКЛЮЧЕНО");
                 
                 await device.selectConfiguration(1);
                 await device.claimInterface(0);
@@ -97,12 +96,10 @@
             try {
                 let data = new TextEncoder().encode(cmd + "\r");
                 await device.transferOut(2, data);
+                await sleep(250); 
                 
-                await sleep(300); // Увеличено для стабильности Ford шины
-                
-                let result = await device.transferIn(1, 64);
-                let text = new TextDecoder().decode(result.data);
-                return text.replace(/[\r\n>]/g, '').trim(); 
+                let result = await device.transferIn(1, 128); // Увеличен буфер
+                return new TextDecoder().decode(result.data).trim();
             } catch (e) { return ""; }
         }
 
@@ -111,67 +108,74 @@
             await sleep(500);
             await sendCommand("ATE0");
             await sendCommand("ATH1");
-            await sendCommand("ATSP0");
-            log("СИСТЕМА ГОТОВА. ЧТЕНИЕ...");
+            await sendCommand("ATSP6"); // ПРИНУДИТЕЛЬНО CAN ISO 15765-4 (FORD)
+            log("ПРОТОКОЛ CAN УСТАНОВЛЕН");
             startPolling();
         }
 
         function startPolling() {
             setInterval(async () => {
                 // Обороты
-                let resRPM = await sendCommand("010C");
-                parseRPM(resRPM);
+                let rRPM = await sendCommand("010C");
+                parseRPM(rRPM);
 
                 // Температура
-                let resTemp = await sendCommand("0105");
-                parseData(resTemp, "4105", 'temp', 1, -40);
+                let rTemp = await sendCommand("0105");
+                parseSimple(rTemp, "4105", 'temp', -40);
 
                 // Скорость
-                let resSpeed = await sendCommand("010D");
-                parseData(resSpeed, "410D", 'speed', 1);
+                let rSpeed = await sendCommand("010D");
+                parseSimple(rSpeed, "410D", 'speed');
 
-                // Пробег (Ford Specific PID)
-                let resOdo = await sendCommand("220DD4");
-                parseOdometer(resOdo);
+                // Топливо
+                let rFuel = await sendCommand("012F");
+                parseFuel(rFuel);
 
-                // Топливо (Бак 52л)
-                let resFuel = await sendCommand("012F");
-                parseFuel(resFuel);
+                // Пробег (Пробуем стандартный PID Ford)
+                let rOdo = await sendCommand("220DD4");
+                parseOdo(rOdo);
             }, 1000);
         }
 
-        function parseData(hex, pid, elementId, byteCount, offset = 0) {
-            if (!hex.includes(pid)) return;
-            let clean = hex.substring(hex.indexOf(pid) + pid.length);
-            let val = parseInt(clean.substr(0, 2 * byteCount), 16) + offset;
-            if (!isNaN(val)) {
-                document.getElementById(elementId).innerHTML = val + (elementId === 'speed' ? '<small style="font-size: 0.5em"> км/ч</small>' : '');
+        function parseSimple(hex, pid, id, offset = 0) {
+            let clean = hex.replace(/\s/g, '');
+            let idx = clean.indexOf(pid);
+            if (idx !== -1) {
+                let val = parseInt(clean.substr(idx + 4, 2), 16) + offset;
+                if (!isNaN(val)) {
+                    document.getElementById(id).innerHTML = val + (id === 'speed' ? '<small style="font-size: 0.5em"> км/ч</small>' : '');
+                }
             }
         }
 
         function parseRPM(hex) {
-            if (!hex.includes("410C")) return;
-            let clean = hex.substring(hex.indexOf("410C") + 4);
-            let a = parseInt(clean.substr(0, 2), 16);
-            let b = parseInt(clean.substr(2, 2), 16);
-            let rpm = Math.round(((a * 256) + b) / 4);
-            if (!isNaN(rpm)) document.getElementById('rpm').innerText = rpm;
-        }
-
-        function parseOdometer(hex) {
-            // Формат ответа Ford на 220DD4 обычно: 62 0D D4 XX YY ZZ
-            if (!hex.includes("620DD4")) return;
-            let clean = hex.substring(hex.indexOf("620DD4") + 6);
-            let km = parseInt(clean.substr(0, 6), 16); // Читаем 3 байта
-            if (!isNaN(km)) document.getElementById('odo').innerText = km.toLocaleString() + " км";
+            let clean = hex.replace(/\s/g, '');
+            let idx = clean.indexOf("410C");
+            if (idx !== -1) {
+                let a = parseInt(clean.substr(idx + 4, 2), 16);
+                let b = parseInt(clean.substr(idx + 6, 2), 16);
+                let rpm = Math.round(((a * 256) + b) / 4);
+                if (!isNaN(rpm)) document.getElementById('rpm').innerText = rpm;
+            }
         }
 
         function parseFuel(hex) {
-            if (!hex.includes("412F")) return;
-            let clean = hex.substring(hex.indexOf("412F") + 4);
-            let raw = parseInt(clean.substr(0, 2), 16);
-            let liters = Math.round((raw * 52) / 255); 
-            if (!isNaN(liters)) document.getElementById('fuel').innerText = liters;
+            let clean = hex.replace(/\s/g, '');
+            let idx = clean.indexOf("412F");
+            if (idx !== -1) {
+                let raw = parseInt(clean.substr(idx + 4, 2), 16);
+                let liters = Math.round((raw * 52) / 255); 
+                if (!isNaN(liters)) document.getElementById('fuel').innerText = liters;
+            }
+        }
+
+        function parseOdo(hex) {
+            let clean = hex.replace(/\s/g, '');
+            let idx = clean.indexOf("620DD4");
+            if (idx !== -1) {
+                let km = parseInt(clean.substr(idx + 6, 6), 16);
+                if (!isNaN(km)) document.getElementById('odo').innerText = km.toLocaleString() + " км";
+            }
         }
     </script>
 </body>
