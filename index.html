@@ -3,50 +3,43 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>X-CONECT: DEBUG V2</title>
+    <title>X-CONECT: FORD FINAL FIX</title>
     <style>
         body { background: #000; color: #0f0; font-family: monospace; margin: 0; padding: 10px; text-align: center; }
         .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px; }
-        .card { border: 1px solid #333; padding: 10px; border-radius: 8px; background: #050505; }
-        .val { font-size: 1.8em; display: block; color: #0f0; font-weight: bold; }
+        .card { border: 1px solid #333; padding: 15px; border-radius: 10px; background: #050505; }
+        .val { font-size: 2em; display: block; color: #0f0; font-weight: bold; }
         .label { font-size: 0.7em; color: #00bcff; text-transform: uppercase; }
-        #log { height: 300px; overflow-y: auto; border: 1px solid #444; margin-top: 15px; font-size: 11px; text-align: left; padding: 10px; color: #0f0; background: #050805; }
-        .log-in { color: #aaa; } .log-out { color: #00ff00; font-weight: bold; } .log-err { color: #ff3c00; }
+        #log { height: 150px; overflow-y: auto; border: 1px solid #222; margin-top: 15px; font-size: 10px; text-align: left; padding: 5px; color: #666; background: #080808; }
         button { background: #0f0; border: none; color: #000; padding: 15px; font-size: 1em; border-radius: 10px; cursor: pointer; width: 100%; font-weight: bold; }
         .full-width { grid-column: span 2; }
     </style>
 </head>
 <body>
 
-    <h2 style="color: #ff3c00; margin: 5px;">X-CONECT DIAGNOSTIC V2</h2>
-    <button id="connectBtn">ЗАПУСТИТЬ МОНИТОР</button>
+    <h2 style="color: #ff3c00; margin: 5px;">X-CONECT SYSTEM</h2>
+    <button id="connectBtn">ПОДКЛЮЧИТЬ USB</button>
 
     <div class="grid">
         <div class="card full-width">
-            <span class="label">Одометр</span>
+            <span class="label">Одометр (Пробег)</span>
             <span id="odo" class="val">--- ---</span>
         </div>
-        <div class="card"><span class="label">Бензин</span><span id="fuel" class="val">--</span></div>
-        <div class="card"><span class="label">Мотор</span><span id="temp" class="val">--</span></div>
+        <div class="card"><span class="label">Бензин (Л)</span><span id="fuel" class="val">--</span></div>
+        <div class="card"><span class="label">Мотор (°C)</span><span id="temp" class="val">--</span></div>
         <div class="card"><span class="label">Скорость</span><span id="speed" class="val">0</span></div>
         <div class="card"><span class="label">Обороты</span><span id="rpm" class="val">0</span></div>
     </div>
 
-    <div id="log">Нажми "ЗАПУСТИТЬ"...</div>
+    <div id="log">Система готова...</div>
 
     <script>
         const logDiv = document.getElementById('log');
         let device;
         let isRunning = false;
 
-        function log(msg, type = '') {
-            const span = document.createElement('div');
-            if (type === 'in') span.className = 'log-in';
-            if (type === 'out') span.className = 'log-out';
-            if (type === 'err') span.className = 'log-err';
-            span.innerHTML = `[${new Date().toLocaleTimeString()}] ${msg}`;
-            logDiv.appendChild(span);
-            if (logDiv.childNodes.length > 60) logDiv.removeChild(logDiv.firstChild);
+        function log(msg) {
+            logDiv.innerHTML += `> ${msg}<br>`;
             logDiv.scrollTop = logDiv.scrollHeight;
         }
 
@@ -61,35 +54,33 @@
                 await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x03, value: divisor, index: 0 });
 
                 log("ИНИЦИАЛИЗАЦИЯ...");
-                await talk("ATZ");
-                await talk("ATE0");
-                await talk("ATH1");
-                await talk("ATSP6"); // Ставим CAN (HS)
+                await send("ATZ");
+                await sleep(500);
+                await send("ATE0");
+                await send("ATH1");
+                await send("ATSP6"); 
                 
                 isRunning = true;
                 mainLoop();
-            } catch (err) { log("ОШИБКА USB: " + err, 'err'); }
+            } catch (err) { log("ОШИБКА: " + err); }
         });
 
-        async function talk(cmd) {
+        async function send(cmd) {
             try {
-                log(`SEND: ${cmd}`, 'in');
                 await device.transferOut(2, new TextEncoder().encode(cmd + "\r"));
-                await sleep(300); // Увеличил паузу, чтобы ты видел лог
+                await sleep(150);
                 let res = await device.transferIn(1, 128);
-                let text = new TextDecoder().decode(res.data).replace(/\s/g, '').replace(/>/g, '');
-                log(`RECV: ${text || 'EMPTY'}`, 'out');
-                return text;
+                return new TextDecoder().decode(res.data).replace(/\s/g, '').replace(/>/g, '');
             } catch (e) { return ""; }
         }
 
         function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
         async function mainLoop() {
-            let step = 0;
+            let counter = 0;
             while (isRunning) {
-                // 1. ОБОРОТЫ
-                let rRPM = await talk("010C");
+                // 1. ОБОРОТЫ И СКОРОСТЬ (Каждый цикл)
+                let rRPM = await send("010C");
                 if (rRPM.includes("410C")) {
                     let idx = rRPM.indexOf("410C") + 4;
                     let a = parseInt(rRPM.substr(idx, 2), 16);
@@ -97,29 +88,46 @@
                     document.getElementById('rpm').innerText = Math.round(((a * 256) + b) / 4);
                 }
 
-                // 2. СКОРОСТЬ
-                let rSpeed = await talk("010D");
+                let rSpeed = await send("010D");
                 if (rSpeed.includes("410D")) {
                     document.getElementById('speed').innerText = parseInt(rSpeed.substr(rSpeed.indexOf("410D") + 4, 2), 16);
                 }
 
-                // 3. ТЕМПЕРАТУРА (Добавил!)
-                let rTemp = await talk("0105");
-                if (rTemp.includes("4105")) {
-                    document.getElementById('temp').innerText = parseInt(rTemp.substr(rTemp.indexOf("4105") + 4, 2), 16) - 40;
+                // 2. ТЕМПЕРАТУРА (Раз в 5 циклов)
+                if (counter % 5 === 0) {
+                    let rTemp = await send("0105");
+                    if (rTemp.includes("4105")) {
+                        document.getElementById('temp').innerText = parseInt(rTemp.substr(rTemp.indexOf("4105") + 4, 2), 16) - 40;
+                    }
                 }
 
-                // 4. ТЕСТ ПРОБЕГА И БАКА (раз в 10 циклов)
-                if (step % 10 === 0) {
-                    log("--- ТЕСТ СЕРВИСНЫХ ДАННЫХ ---", 'err');
-                    await talk("2204FE"); // Одометр вариант 1
-                    await talk("22DD01"); // Одометр вариант 2
-                    await talk("220461"); // Бак вариант 1
-                    await talk("012F");   // Бак вариант 2
+                // 3. БАК И ПРОБЕГ (Раз в 15 циклов через обращение к приборке)
+                if (counter % 15 === 0) {
+                    // Переключаемся на приборную панель
+                    await send("ATSH720"); 
+
+                    // БАК
+                    let rFuel = await send("220461");
+                    if (rFuel.includes("620461")) {
+                        let fRaw = parseInt(rFuel.substr(rFuel.indexOf("620461") + 6, 2), 16);
+                        document.getElementById('fuel').innerText = Math.round((fRaw * 45) / 255);
+                    }
+
+                    // ПРОБЕГ
+                    let rOdo = await send("22DD01");
+                    if (rOdo.includes("62DD01")) {
+                        let hex = rOdo.substr(rOdo.indexOf("62DD01") + 6, 6);
+                        let val = parseInt(hex, 16);
+                        if (!isNaN(val)) document.getElementById('odo').innerText = val.toLocaleString();
+                    }
+
+                    // Возвращаемся в обычный режим
+                    await send("ATSH"); 
                 }
 
-                step++;
-                await sleep(200);
+                counter++;
+                if (counter > 100) counter = 0;
+                await sleep(50);
             }
         }
     </script>
