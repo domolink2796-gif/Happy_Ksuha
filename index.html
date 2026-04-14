@@ -3,41 +3,32 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>X-CONECT: FINAL FUEL SCAN</title>
+    <title>X-CONECT: DEBUG FUEL</title>
     <style>
         body { background: #000; color: #0f0; font-family: monospace; margin: 0; padding: 10px; text-align: center; }
-        .fuel-box { border: 4px solid #00bcff; padding: 25px; border-radius: 20px; background: #050505; margin: 15px 0; }
-        .fuel-val { font-size: 6em; display: block; color: #00bcff; font-weight: bold; }
-        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-        .card { border: 1px solid #222; padding: 12px; border-radius: 10px; background: #080808; }
-        .val { font-size: 2em; display: block; color: #0f0; }
-        #log { height: 100px; overflow-y: auto; border: 1px solid #111; margin-top: 15px; font-size: 10px; text-align: left; padding: 8px; color: #444; }
-        button { background: #00bcff; border: none; color: #000; padding: 20px; font-size: 1.1em; border-radius: 12px; cursor: pointer; width: 100%; font-weight: bold; }
+        .fuel-box { border: 2px solid #555; padding: 20px; border-radius: 15px; background: #050505; margin: 10px 0; }
+        .fuel-val { font-size: 4em; display: block; color: #00bcff; }
+        #log { height: 250px; overflow-y: auto; border: 1px solid #222; margin-top: 15px; font-size: 11px; text-align: left; padding: 10px; color: #888; background: #0a0a0a; }
+        button { background: #00bcff; border: none; color: #000; padding: 15px; font-size: 1em; border-radius: 10px; cursor: pointer; width: 100%; font-weight: bold; }
     </style>
 </head>
 <body>
 
-    <button id="connectBtn">ЗАПУСК: ТЕСТ БЛОКА GEM (760)</button>
+    <button id="connectBtn">ПОДКЛЮЧИТЬ И СМОТРЕТЬ ОТВЕТЫ</button>
 
     <div class="fuel-box">
-        <span style="color: #00bcff; font-size: 0.9em;">ТОПЛИВО (L)</span>
+        <span style="font-size: 0.8em; color: #666;">ЗНАЧЕНИЕ БАКА:</span>
         <span id="fuel" class="fuel-val">--</span>
-        <span style="color: #00bcff; font-size: 1.5em;">ЛИТРОВ</span>
     </div>
 
-    <div class="grid">
-        <div class="card"><span id="temp" class="val">--</span><span style="color:#666; font-size:0.7em;">TEMP</span></div>
-        <div class="card"><span id="rpm" class="val">0</span><span style="color:#666; font-size:0.7em;">RPM</span></div>
-    </div>
-
-    <div id="log">Система готова...</div>
+    <div id="log">Нажми запуск и смотри, что ответит машина...</div>
 
     <script>
         const logDiv = document.getElementById('log');
-        let device, isRunning = false;
+        let device;
 
-        function log(msg) {
-            logDiv.innerHTML += `> ${msg}<br>`;
+        function log(msg, color = "#888") {
+            logDiv.innerHTML += `<span style="color:${color}">> ${msg}</span><br>`;
             logDiv.scrollTop = logDiv.scrollHeight;
         }
 
@@ -51,67 +42,45 @@
                 let divisor = Math.floor(3000000 / 38400);
                 await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x03, value: divisor, index: 0 });
 
-                log("ПОДКЛЮЧЕНО.");
+                log("СВЯЗЬ УСТАНОВЛЕНА", "#0f0");
                 await send("ATZ");
-                await sleep(500);
                 await send("ATE0");
                 await send("ATSP6");
-                await send("ATH0"); 
 
-                isRunning = true;
-                mainLoop();
-            } catch (err) { log("ОШИБКА: " + err); }
+                runDebug();
+            } catch (err) { log("ОШИБКА: " + err, "#f00"); }
         });
 
-        async function send(cmd, wait = 80) {
-            try {
-                await device.transferOut(2, new TextEncoder().encode(cmd + "\r"));
-                await sleep(wait);
-                let res = await device.transferIn(1, 128);
-                return new TextDecoder().decode(res.data).replace(/\s/g, '').replace(/>/g, '');
-            } catch (e) { return ""; }
+        async function send(cmd, wait = 100) {
+            await device.transferOut(2, new TextEncoder().encode(cmd + "\r"));
+            await sleep(wait);
+            let res = await device.transferIn(1, 128);
+            let response = new TextDecoder().decode(res.data).replace(/\s/g, '').replace(/>/g, '');
+            log(`CMD: ${cmd} | RES: ${response || "НЕТ ОТВЕТА"}`);
+            return response;
         }
 
         function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
-        async function mainLoop() {
-            let cycle = 0;
-            while (isRunning) {
-                // 1. ОБОРОТЫ И ТЕМПЕРАТУРА
-                await send("ATSH7E0", 20);
-                let rRPM = await send("010C", 60);
-                if (rRPM.includes("410C")) {
-                    let idx = rRPM.indexOf("410C") + 4;
-                    document.getElementById('rpm').innerText = Math.round(((parseInt(rRPM.substr(idx, 2), 16) * 256) + parseInt(rRPM.substr(idx + 2, 2), 16)) / 4);
-                }
+        async function runDebug() {
+            log("--- НАЧИНАЮ ПОИСК ПАРАМЕТРА БАКА ---", "#ff0");
+            
+            // 1. Проверка через приборку
+            await send("ATSH720");
+            let r1 = await send("012F");
+            if(r1.includes("412F")) log("НАЙДЕНО В 720 (012F)!", "#0f0");
 
-                let rTemp = await send("0105", 60);
-                if (rTemp.includes("4105")) {
-                    document.getElementById('temp').innerText = (parseInt(rTemp.substr(rTemp.indexOf("4105") + 4, 2), 16) - 40) + "°C";
-                }
+            // 2. Проверка через GEM
+            await send("ATSH760");
+            let r2 = await send("012F");
+            if(r2.includes("412F")) log("НАЙДЕНО В 760 (012F)!", "#0f0");
 
-                // 2. БЕНЗИН (ФИНАЛЬНАЯ ПОПЫТКА)
-                if (cycle % 10 === 0) {
-                    // А: Пробуем Блок GEM/BCM (760)
-                    await send("ATSH760", 30);
-                    let resGEM = await send("012F", 150);
-                    
-                    if (resGEM.includes("412F")) {
-                        let val = parseInt(resGEM.substr(resGEM.indexOf("412F") + 4, 2), 16);
-                        document.getElementById('fuel').innerText = Math.round(val * 45 / 255);
-                    } else {
-                        // Б: Пробуем стандарт через приборку еще раз (720)
-                        await send("ATSH720", 30);
-                        let resHEC = await send("012F", 150);
-                        if (resHEC.includes("412F")) {
-                            let val = parseInt(resHEC.substr(resHEC.indexOf("412F") + 4, 2), 16);
-                            document.getElementById('fuel').innerText = Math.round(val * 45 / 255);
-                        }
-                    }
-                }
-                cycle++;
-                await sleep(20);
-            }
+            // 3. Проверка спец-запроса Ford
+            await send("ATSH720");
+            let r3 = await send("220461");
+            if(r3.includes("620461")) log("НАЙДЕНО В 720 (220461)!", "#0f0");
+
+            log("--- ПОИСК ЗАВЕРШЕН. ЕСЛИ НЕТ ЗЕЛЕНЫХ НАДПИСЕЙ, БАК ЗАКРЫТ ---", "#ff0");
         }
     </script>
 </body>
