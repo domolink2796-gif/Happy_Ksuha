@@ -11,132 +11,105 @@
         .val { font-size: 2.2em; display: block; color: #0f0; font-weight: bold; }
         .label { font-size: 0.75em; color: #00bcff; text-transform: uppercase; letter-spacing: 1px; }
         #log { height: 120px; overflow-y: auto; border: 1px solid #222; margin-top: 15px; font-size: 11px; text-align: left; padding: 8px; color: #888; background: #0a0a0a; }
-        button { background: #0f0; border: none; color: #000; padding: 18px; font-size: 1.1em; border-radius: 10px; cursor: pointer; width: 100%; font-weight: bold; margin-bottom: 10px; }
-        button:active { background: #00bcff; }
+        button { background: #0f0; border: none; color: #000; padding: 18px; font-size: 1.1em; border-radius: 10px; cursor: pointer; width: 100%; font-weight: bold; }
         .full-width { grid-column: span 2; }
-        .unit { font-size: 0.4em; color: #555; margin-left: 5px; }
     </style>
 </head>
 <body>
 
-    <div id="header">
-        <h2 style="color: #ff3c00; margin: 5px; letter-spacing: 2px;">X-CONECT SYSTEM</h2>
-        <button id="connectBtn">ПОДКЛЮЧИТЬ ELS27 (USB)</button>
-    </div>
+    <button id="connectBtn">ПОДКЛЮЧИТЬ FORD USB</button>
 
     <div class="grid">
-        <div class="card full-width">
-            <span class="label">Пробег (ODO)</span>
-            <span id="odo" class="val">--- ---</span>
-        </div>
-        
-        <div class="card">
-            <span class="label">Бак (Литры)</span>
-            <span id="fuel" class="val">--</span>
-        </div>
-
-        <div class="card">
-            <span class="label">Мотор (°C)</span>
-            <span id="temp" class="val">--</span>
-        </div>
-
-        <div class="card">
-            <span class="label">Скорость</span>
-            <span id="speed" class="val">0<small style="font-size: 0.5em"> км/ч</small></span>
-        </div>
-
         <div class="card">
             <span class="label">Обороты</span>
             <span id="rpm" class="val">0</span>
         </div>
+
+        <div class="card">
+            <span class="label">Температура</span>
+            <span id="temp" class="val">--</span>
+        </div>
+
+        <div class="card">
+            <span class="label">Бензин (Л)</span>
+            <span id="fuel" class="val">--</span>
+        </div>
+
+        <div class="card">
+            <span class="label">Скорость</span>
+            <span id="speed" class="val">0</span>
+        </div>
+
+        <div class="card full-width">
+            <span class="label">Общий пробег</span>
+            <span id="odo" class="val">---</span>
+        </div>
     </div>
 
-    <div id="log">Ожидание USB соединения...</div>
+    <div id="log">Ожидание...</div>
 
     <script>
         const logDiv = document.getElementById('log');
-        const connectBtn = document.getElementById('connectBtn');
         let device;
         const sleep = ms => new Promise(res => setTimeout(res, ms));
 
         function log(msg) {
-            const time = new Date().toLocaleTimeString();
-            logDiv.innerHTML += `[${time}] ${msg}<br>`;
+            logDiv.innerHTML += `> ${msg}<br>`;
             logDiv.scrollTop = logDiv.scrollHeight;
         }
 
-        connectBtn.addEventListener('click', async () => {
+        document.getElementById('connectBtn').addEventListener('click', async () => {
             try {
-                // Поиск FTDI чипа (ELS27)
-                device = await navigator.usb.requestDevice({ 
-                    filters: [{ vendorId: 0x0403, productId: 0x6001 }] 
-                });
-
+                device = await navigator.usb.requestDevice({ filters: [{ vendorId: 0x0403, productId: 0x6001 }] });
                 await device.open();
-                log("USB УСТРОЙСТВО ПОДКЛЮЧЕНО");
-                
                 await device.selectConfiguration(1);
                 await device.claimInterface(0);
 
-                // Настройка скорости 38400 (самая стабильная для первой инициализации)
-                await setupFTDI(38400);
-                log("ELS27 ГОТОВ. ИНИЦИАЛИЗАЦИЯ...");
+                await device.controlTransferOut({
+                    requestType: 'vendor', recipient: 'device',
+                    request: 0x03, value: 0x4138, index: 0
+                });
+
+                log("СВЯЗЬ УСТАНОВЛЕНА");
+                await sendCommand("ATZ");
+                await sleep(500);
+                await sendCommand("ATE0");
+                await sendCommand("ATSP0");
                 
-                await initELM();
+                log("ОПРОС ЗАПУЩЕН");
+                startPolling();
             } catch (err) {
                 log("ОШИБКА: " + err);
             }
         });
 
-        async function setupFTDI(baud) {
-            let divisor = Math.floor(3000000 / baud);
-            await device.controlTransferOut({
-                requestType: 'vendor', recipient: 'device', request: 0x03, value: divisor, index: 0
-            });
-        }
-
         async function sendCommand(cmd) {
             try {
-                let data = new TextEncoder().encode(cmd + "\r");
-                await device.transferOut(2, data);
-                
-                await sleep(200); // Твоя задержка ожидания ответа
-                
+                await device.transferOut(2, new TextEncoder().encode(cmd + "\r"));
+                await sleep(200);
                 let result = await device.transferIn(1, 64);
-                let text = new TextDecoder().decode(result.data);
-                return text.trim();
-            } catch (e) { return ""; }
-        }
-
-        async function initELM() {
-            await sendCommand("ATZ");    
-            await sleep(500);
-            await sendCommand("ATE0");   
-            await sendCommand("ATH1");   
-            await sendCommand("ATSP0");  
-            log("ПРОТОКОЛ УСТАНОВЛЕН. ЧТЕНИЕ ДАННЫХ...");
-            startPolling();
+                return new TextDecoder().decode(result.data);
+            } catch (e) {
+                return "";
+            }
         }
 
         function startPolling() {
             setInterval(async () => {
-                // Обороты (PID 0C) - Твоя работающая часть
+                // Твои оригинальные команды
                 let resRPM = await sendCommand("010C");
                 parseRPM(resRPM);
 
-                // Температура (PID 05) - Твоя работающая часть
                 let resTemp = await sendCommand("0105");
                 parseData(resTemp, "4105", 'temp', 1, -40);
 
-                // Скорость (PID 0D)
+                // Добавленные по тому же принципу
                 let resSpeed = await sendCommand("010D");
                 parseData(resSpeed, "410D", 'speed', 1);
 
-                // Топливо (PID 2F) - Добавил опрос
                 let resFuel = await sendCommand("012F");
                 parseFuel(resFuel);
 
-                // Пробег (PID 31) - Добавил опрос (расстояние с момента сброса ошибок)
                 let resOdo = await sendCommand("0131");
                 parseOdo(resOdo);
 
@@ -148,7 +121,7 @@
             let index = clean.indexOf(pid);
             if (index !== -1) {
                 let val = parseInt(clean.substr(index + 4, 2 * byteCount), 16) + offset;
-                document.getElementById(elementId).innerHTML = val + (elementId === 'speed' ? '<small style="font-size: 0.5em"> км/ч</small>' : '');
+                document.getElementById(elementId).innerText = val;
             }
         }
 
@@ -163,13 +136,12 @@
             }
         }
 
-        // Новые функции парсинга (Бензин и Пробег)
         function parseFuel(hex) {
             let clean = hex.replace(/\s/g, '');
             let index = clean.indexOf("412F");
             if (index !== -1) {
                 let raw = parseInt(clean.substr(index + 4, 2), 16);
-                let liters = Math.round((raw * 45) / 255); // Расчет на твой бак 45л
+                let liters = Math.round((raw / 255) * 45); 
                 document.getElementById('fuel').innerText = liters;
             }
         }
@@ -178,8 +150,9 @@
             let clean = hex.replace(/\s/g, '');
             let index = clean.indexOf("4131");
             if (index !== -1) {
-                let val = parseInt(clean.substr(index + 4, 4), 16); // Читаем 2 байта (4 символа)
-                document.getElementById('odo').innerText = val;
+                let a = parseInt(clean.substr(index + 4, 2), 16);
+                let b = parseInt(clean.substr(index + 6, 2), 16);
+                document.getElementById('odo').innerText = (a * 256) + b;
             }
         }
     </script>
