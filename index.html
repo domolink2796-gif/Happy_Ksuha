@@ -3,35 +3,27 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>X-CONECT: TITANIUM FORCE V2</title>
+    <title>X-CONECT: ODO EXTRACTOR</title>
     <style>
         body { background: #000; color: #0f0; font-family: monospace; margin: 0; padding: 10px; text-align: center; }
-        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 15px; }
-        .card { border: 1px solid #333; padding: 15px; border-radius: 10px; background: #050505; border-left: 3px solid #0f0; }
-        .val { font-size: 2.2em; display: block; color: #0f0; font-weight: bold; text-shadow: 0 0 10px #0f0; }
-        .label { font-size: 0.75em; color: #00bcff; text-transform: uppercase; }
-        #log { height: 120px; overflow-y: auto; border: 1px solid #222; margin-top: 15px; font-size: 10px; text-align: left; padding: 5px; color: #555; background: #080808; }
-        button { background: #0f0; border: none; color: #000; padding: 20px; font-size: 1.2em; border-radius: 10px; cursor: pointer; width: 100%; font-weight: bold; }
-        .full-width { grid-column: span 2; }
+        .card { border: 2px solid #0f0; padding: 30px; border-radius: 15px; background: #050505; margin: 20px 0; }
+        .val { font-size: 3.5em; display: block; color: #0f0; font-weight: bold; text-shadow: 0 0 20px #0f0; }
+        .label { font-size: 1.2em; color: #00bcff; text-transform: uppercase; }
+        #log { height: 200px; overflow-y: auto; border: 1px solid #222; font-size: 11px; text-align: left; padding: 10px; color: #888; background: #0a0a0a; }
+        button { background: #ff3c00; border: none; color: #fff; padding: 20px; font-size: 1.2em; border-radius: 10px; cursor: pointer; width: 100%; font-weight: bold; }
     </style>
 </head>
 <body>
 
-    <h2 style="color: #ff3c00; margin: 10px;">X-CONECT: HARDCORE SCAN</h2>
-    <button id="connectBtn">ЗАПУСТИТЬ СКАНЕР</button>
+    <h2 style="color: #0f0; margin: 10px;">FORD ODO SCANNER</h2>
+    <button id="connectBtn">НАЙТИ РЕАЛЬНЫЙ ПРОБЕГ</button>
 
-    <div class="grid">
-        <div class="card full-width">
-            <span class="label">Одометр (FORD HEC)</span>
-            <span id="odo" class="val">--- ---</span>
-        </div>
-        <div class="card"><span class="label">Бензин (Л)</span><span id="fuel" class="val">--</span></div>
-        <div class="card"><span class="label">Мотор (°C)</span><span id="temp" class="val">--</span></div>
-        <div class="card"><span class="label">Скорость</span><span id="speed" class="val">0</span></div>
-        <div class="card"><span class="label">Обороты</span><span id="rpm" class="val">0</span></div>
+    <div class="card">
+        <span class="label">Реальный пробег (км)</span>
+        <span id="odo" class="val">ПОИСК...</span>
     </div>
 
-    <div id="log">ELS27 готов...</div>
+    <div id="log">Подключите ELS27 и включите зажигание...</div>
 
     <script>
         const logDiv = document.getElementById('log');
@@ -50,81 +42,67 @@
                 await device.selectConfiguration(1);
                 await device.claimInterface(0);
                 
+                // Настройка чипа STN
                 let divisor = Math.floor(3000000 / 38400);
                 await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x03, value: divisor, index: 0 });
 
-                log("ПОДКЛЮЧЕНО. СБРОС АДАПТЕРА...");
+                log("ELS27 НАЙДЕН. ВЗЛОМ ОДОМЕТРА...");
                 await send("ATZ");
                 await sleep(500);
                 await send("ATE0");
                 await send("ATH1");
                 
                 isRunning = true;
-                mainLoop();
+                extractOdo();
             } catch (err) { log("ОШИБКА: " + err); }
         });
 
-        async function send(cmd, wait = 150) {
+        async function send(cmd, wait = 300) {
             try {
                 await device.transferOut(2, new TextEncoder().encode(cmd + "\r"));
                 await sleep(wait);
                 let res = await device.transferIn(1, 128);
-                return new TextDecoder().decode(res.data).replace(/\s/g, '').replace(/>/g, '');
+                let text = new TextDecoder().decode(res.data).replace(/\s/g, '').replace(/>/g, '');
+                return text;
             } catch (e) { return ""; }
         }
 
         function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
-        async function mainLoop() {
-            let cycle = 0;
+        async function extractOdo() {
+            // Перебор всех возможных способов хранения пробега в Ford
+            const commands = [
+                {at: "ATSP6", sh: "ATSH720", req: "22DD01"}, // Приборка на основной шине
+                {at: "ATSPB", sh: "ATSH720", req: "22DD01"}, // Приборка на MS-CAN (125k)
+                {at: "ATSP6", sh: "ATSH7E0", req: "2204FE"}, // Мозги двигателя
+                {at: "ATSPB", sh: "ATSH727", req: "22DD01"}  // Альтернативная приборка
+            ];
+
             while (isRunning) {
-                // ШИНА 1: HS-CAN (Двигатель)
-                await send("ATSP6"); 
-                
-                let rRPM = await send("010C");
-                if (rRPM.includes("410C")) {
-                    let a = parseInt(rRPM.substr(rRPM.indexOf("410C")+4, 2), 16);
-                    let b = parseInt(rRPM.substr(rRPM.indexOf("410C")+6, 2), 16);
-                    document.getElementById('rpm').innerText = Math.round(((a * 256) + b) / 4);
-                }
+                for (let c of commands) {
+                    log(`ПРОБУЕМ: ${c.at} -> ${c.sh}...`);
+                    await send(c.at);
+                    await send(c.sh);
+                    let res = await send(c.req, 500);
 
-                let rSpeed = await send("010D");
-                if (rSpeed.includes("410D")) {
-                    document.getElementById('speed').innerText = parseInt(rSpeed.substr(rSpeed.indexOf("410D")+4, 2), 16);
-                }
+                    if (res.includes("62")) {
+                        log("ДАННЫЕ ПОЛУЧЕНЫ!");
+                        let hex = "";
+                        if (res.includes("62DD01")) hex = res.substr(res.indexOf("62DD01") + 6, 6);
+                        else if (res.includes("6204FE")) hex = res.substr(res.indexOf("6204FE") + 6, 6);
 
-                let rTemp = await send("0105");
-                if (rTemp.includes("4105")) {
-                    document.getElementById('temp').innerText = parseInt(rTemp.substr(rTemp.indexOf("4105")+4, 2), 16) - 40;
-                }
-
-                // ШИНА 2: Прыгаем на MS-CAN (Приборка) раз в 15 секунд
-                if (cycle % 15 === 0) {
-                    log("ПЕРЕКЛЮЧЕНИЕ НА MS-CAN (ПРИБОРКА)...");
-                    
-                    // Команда для ELS27: переключиться на протокол Ford MS-CAN (частота 125кбит)
-                    await send("ATSPB"); 
-                    await send("ATSH720");
-
-                    // Пробуем пробег
-                    let oRes = await send("22DD01", 400);
-                    if (oRes.includes("62DD01")) {
-                        let val = parseInt(oRes.substr(oRes.indexOf("62DD01")+6, 6), 16);
-                        document.getElementById('odo').innerText = val.toLocaleString();
+                        if (hex.length === 6) {
+                            let km = parseInt(hex, 16);
+                            if (km > 1000) {
+                                document.getElementById('odo').innerText = km.toLocaleString();
+                                log(`УСПЕХ: ${km} км`);
+                                // Если нашли, останавливаемся на этом методе
+                                continue; 
+                            }
+                        }
                     }
-
-                    // Пробуем бак
-                    let fRes = await send("220461", 400);
-                    if (fRes.includes("620461")) {
-                        let fRaw = parseInt(fRes.substr(fRes.indexOf("620461")+6, 2), 16);
-                        document.getElementById('fuel').innerText = Math.round((fRaw * 45) / 255);
-                    }
-                    
-                    log("ВОЗВРАТ НА HS-CAN...");
                 }
-
-                cycle++;
-                await sleep(100);
+                await sleep(1000);
             }
         }
     </script>
