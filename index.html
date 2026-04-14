@@ -3,29 +3,45 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>X-CONECT: ODO STABLE</title>
+    <title>X-CONECT: FUEL MONITOR</title>
     <style>
         body { background: #000; color: #0f0; font-family: monospace; margin: 0; padding: 10px; text-align: center; }
-        .card { border: 2px solid #0f0; padding: 30px; border-radius: 15px; background: #050505; margin: 20px 0; }
-        .val { font-size: 3.5em; display: block; color: #0f0; font-weight: bold; text-shadow: 0 0 15px #0f0; }
-        #log { height: 150px; overflow-y: auto; border: 1px solid #222; font-size: 11px; text-align: left; padding: 10px; color: #666; background: #0a0a0a; }
-        button { background: #0f0; border: none; color: #000; padding: 20px; font-size: 1.2em; border-radius: 10px; cursor: pointer; width: 100%; font-weight: bold; }
+        .fuel-card { border: 3px solid #00bcff; padding: 30px; border-radius: 20px; background: #050505; margin: 20px 0; }
+        .fuel-val { font-size: 4em; display: block; color: #00bcff; font-weight: bold; text-shadow: 0 0 15px #00bcff; }
+        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+        .card { border: 1px solid #333; padding: 15px; border-radius: 10px; background: #050505; }
+        .val { font-size: 2em; display: block; color: #0f0; }
+        .label { font-size: 0.8em; color: #666; text-transform: uppercase; }
+        #log { height: 120px; overflow-y: auto; border: 1px solid #222; margin-top: 15px; font-size: 10px; text-align: left; padding: 8px; color: #444; background: #080808; }
+        button { background: #00bcff; border: none; color: #000; padding: 20px; font-size: 1.2em; border-radius: 10px; cursor: pointer; width: 100%; font-weight: bold; }
     </style>
 </head>
 <body>
 
-    <button id="connectBtn">ПОДКЛЮЧИТЬ И ЖДАТЬ</button>
+    <button id="connectBtn">ЗАПУСТИТЬ МОНИТОР БАКА</button>
 
-    <div class="card">
-        <span style="color: #00bcff; text-transform: uppercase;">Найденный пробег:</span>
-        <span id="odo" class="val">--- ---</span>
+    <div class="fuel-card">
+        <span style="color: #00bcff;">УРОВЕНЬ ТОПЛИВА</span>
+        <span id="fuel" class="fuel-val">--</span>
+        <span style="color: #00bcff; font-size: 1.2em;">ЛИТРОВ</span>
     </div>
 
-    <div id="log">Нажмите кнопку и не выключайте зажигание...</div>
+    <div class="grid">
+        <div class="card">
+            <span class="label">Температура</span>
+            <span id="temp" class="val">--</span>
+        </div>
+        <div class="card">
+            <span class="label">Обороты</span>
+            <span id="rpm" class="val">0</span>
+        </div>
+    </div>
+
+    <div id="log">Ожидание подключения USB...</div>
 
     <script>
         const logDiv = document.getElementById('log');
-        let device;
+        let device, isRunning = false;
 
         function log(msg) {
             logDiv.innerHTML += `> ${msg}<br>`;
@@ -42,57 +58,75 @@
                 let divisor = Math.floor(3000000 / 38400);
                 await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x03, value: divisor, index: 0 });
 
-                log("ПОДКЛЮЧЕНО. СТАБИЛИЗАЦИЯ ШИНЫ...");
+                log("ПОДКЛЮЧЕНО. ИЩУ ДАТЧИК ТОПЛИВА...");
                 await send("ATZ");
-                await sleep(1000);
+                await sleep(500);
                 await send("ATE0");
-                await send("ATH1");
-                await send("ATSP6"); // Возвращаемся к HS-CAN
+                await send("ATSP6");
                 
-                runStableScan();
+                isRunning = true;
+                fuelLoop();
             } catch (err) { log("ОШИБКА: " + err); }
         });
 
-        async function send(cmd, wait = 500) {
+        async function send(cmd, wait = 200) {
             try {
                 await device.transferOut(2, new TextEncoder().encode(cmd + "\r"));
                 await sleep(wait);
                 let res = await device.transferIn(1, 128);
-                let txt = new TextDecoder().decode(res.data).replace(/\s/g, '').replace(/>/g, '');
-                if (txt.includes("62")) log("ОТВЕТ ПОЛУЧЕН!");
-                return txt;
+                return new TextDecoder().decode(res.data).replace(/\s/g, '');
             } catch (e) { return ""; }
         }
 
         function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
-        async function runStableScan() {
-            while (true) {
-                // Мягко запрашиваем приборку
-                await send("ATSH720");
-                let res = await send("22DD01", 800); // Даем почти секунду на ответ
+        async function fuelLoop() {
+            let attempt = 0;
+            while (isRunning) {
+                // Базовые параметры для проверки связи
+                let rRPM = await send("010C");
+                if (rRPM.includes("410C")) {
+                    let idx = rRPM.indexOf("410C") + 4;
+                    document.getElementById('rpm').innerText = Math.round(((parseInt(rRPM.substr(idx, 2), 16) * 256) + parseInt(rRPM.substr(idx + 2, 2), 16)) / 4);
+                }
 
-                if (res.includes("62DD01")) {
-                    let hex = res.substr(res.indexOf("62DD01") + 6, 6);
-                    let km = parseInt(hex, 16);
-                    if (km > 0) {
-                        document.getElementById('odo').innerText = km.toLocaleString();
-                        log("УСПЕХ: " + km + " км");
+                // ПОИСК БЕНЗИНА (3 разных метода)
+                let fuelData = "";
+                
+                if (attempt % 3 === 0) {
+                    // Метод 1: Стандартный OBD2 (Level in %)
+                    fuelData = await send("012F");
+                    if (fuelData.includes("412F")) {
+                        let raw = parseInt(fuelData.substr(fuelData.indexOf("412F") + 4, 2), 16);
+                        let liters = Math.round((raw * 45) / 255); // Бак Fusion 45л
+                        document.getElementById('fuel').innerText = liters;
+                    }
+                } else if (attempt % 3 === 1) {
+                    // Метод 2: Ford Specific (Fuel Tank Input)
+                    await send("ATSH720");
+                    fuelData = await send("22042C");
+                    if (fuelData.includes("62042C")) {
+                        let raw = parseInt(fuelData.substr(fuelData.indexOf("62042C") + 6, 2), 16);
+                        document.getElementById('fuel').innerText = Math.round((raw * 45) / 255);
                     }
                 } else {
-                    // Если приборка молчит, пробуем второй адрес (который один раз сработал)
-                    log("АДРЕС 720 МОЛЧИТ, ПРОБУЮ 727...");
-                    await send("ATSH727");
-                    let res2 = await send("22DD01", 800);
-                    if (res2.includes("62")) {
-                        let hex2 = res2.substr(res2.indexOf("62") + 6, 6);
-                        let km2 = parseInt(hex2, 16);
-                        document.getElementById('odo').innerText = km2.toLocaleString();
+                    // Метод 3: Ford Specific Alternative
+                    await send("ATSH720");
+                    fuelData = await send("220461");
+                    if (fuelData.includes("620461")) {
+                        let raw = parseInt(fuelData.substr(fuelData.indexOf("620461") + 6, 2), 16);
+                        document.getElementById('fuel').innerText = Math.round(raw / 2); // Бывает в % * 2
                     }
                 }
-                
-                log("ПАУЗА ПЕРЕД СЛЕДУЮЩИМ ЦИКЛОМ...");
-                await sleep(3000); // Ждем 3 секунды, чтобы не перегружать блоки
+
+                // Температура
+                let rTemp = await send("0105");
+                if (rTemp.includes("4105")) {
+                    document.getElementById('temp').innerText = parseInt(rTemp.substr(rTemp.indexOf("4105") + 4, 2), 16) - 40 + "°C";
+                }
+
+                attempt++;
+                await sleep(1000); // Опрос раз в секунду
             }
         }
     </script>
