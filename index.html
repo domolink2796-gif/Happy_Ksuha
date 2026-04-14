@@ -3,88 +3,127 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>X-CONECT: Debug Mode</title>
+    <title>X-CONECT: Ford Fusion Panel</title>
     <style>
         :root {
             --bg-color: #000000;
             --text-main: #00ff00;
             --text-accent: #00bfff;
             --text-warn: #ff4500;
-            --text-dim: #444;
+            --text-dim: #555555;
         }
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body { 
             background-color: var(--bg-color); 
             color: var(--text-main); 
-            font-family: monospace; 
+            font-family: 'Courier New', Courier, monospace; 
             display: flex; 
             flex-direction: column; 
-            height: 100vh;
+            height: 100vh; 
+            overflow: hidden;
         }
-        header { padding: 10px; border-bottom: 1px solid var(--text-dim); display: flex; justify-content: space-between; }
-        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; padding: 5px; flex-shrink: 0; }
-        .card { border: 1px solid var(--text-dim); padding: 5px; text-align: center; border-radius: 5px; }
-        .val { font-size: 24px; font-weight: bold; }
-        .label { font-size: 10px; color: var(--text-accent); }
-        
-        /* ТЕРМИНАЛ - САМОЕ ВАЖНОЕ */
-        #debugTerminal {
-            flex-grow: 1;
-            background: #050505;
-            color: #aaa;
-            font-size: 11px;
+        header {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
             padding: 10px;
-            overflow-y: auto;
-            border: 1px solid #222;
-            margin: 5px;
-            white-space: pre-wrap;
+            border-bottom: 2px solid var(--text-dim);
         }
-        .tx { color: #00ff00; } /* Отправка */
-        .rx { color: #ffffff; font-weight: bold; } /* Ответ */
-        .err { color: #ff4500; } /* Ошибки */
-        
-        button { background: #111; color: #0f0; border: 1px solid #0f0; padding: 10px; border-radius: 5px; }
+        button {
+            background-color: #111;
+            color: var(--text-main);
+            border: 2px solid var(--text-main);
+            padding: 15px 25px;
+            font-size: 18px;
+            font-weight: bold;
+            border-radius: 10px;
+            cursor: pointer;
+            margin-bottom: 5px;
+        }
+        .grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            flex-grow: 1;
+            padding: 10px;
+            gap: 10px;
+        }
+        .card {
+            border: 2px solid var(--text-dim);
+            border-radius: 10px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            padding: 10px;
+        }
+        .card-full { grid-column: span 2; }
+        .title { font-size: 14px; color: var(--text-accent); text-transform: uppercase; }
+        .value { font-size: 10vw; font-weight: bold; line-height: 1.1; }
+        .unit { font-size: 16px; color: var(--text-dim); }
+        #status { color: #888; font-size: 12px; text-align: center; width: 100%; }
+        #rawResponse { color: #555; font-size: 10px; margin-top: 5px; }
     </style>
 </head>
 <body>
 
 <header>
-    <div id="status">STATUS: WAIT</div>
-    <button id="connectBtn">АКТИВИРОВАТЬ USB</button>
+    <button id="connectBtn">ПОДКЛЮЧИТЬ FORD (USB)</button>
+    <div id="status">ОЖИДАНИЕ...</div>
+    <div id="rawResponse">ОТВЕТ ЭБУ: ---</div>
 </header>
 
 <div class="grid">
-    <div class="card"><div class="label">RPM</div><div class="val" id="rpmVal">0</div></div>
-    <div class="card"><div class="label">SPEED</div><div class="val" id="speedVal">0</div></div>
-    <div class="card"><div class="label">TEMP</div><div class="val" id="tempVal">--</div></div>
-    <div class="card"><div class="label">FUEL</div><div class="val" id="fuelVal">--</div></div>
+    <div class="card card-full">
+        <div class="title">Обороты</div>
+        <div class="value" id="rpmVal">0</div>
+        <div class="unit">RPM</div>
+    </div>
+
+    <div class="card">
+        <div class="title">Скорость</div>
+        <div class="value" id="speedVal">0</div>
+        <div class="unit">КМ/Ч</div>
+    </div>
+
+    <div class="card">
+        <div class="title">Мотор</div>
+        <div class="value" id="tempVal">--</div>
+        <div class="unit">°C</div>
+    </div>
+
+    <div class="card">
+        <div class="title">Бак</div>
+        <div class="value" id="fuelVal">--</div>
+        <div class="unit">ЛИТРОВ</div>
+    </div>
+
+    <div class="card">
+        <div class="title">Пробег (ЭБУ)</div>
+        <div class="value" style="font-size: 6vw;" id="odoVal">------</div>
+        <div class="unit">КМ</div>
+    </div>
 </div>
 
-<div id="debugTerminal">Ожидание подключения...</div>
-
 <script>
+    const TANK_VOLUME = 45.0;
     let device;
     let isConnected = false;
+    let commandQueue = ['010C', '010D', '0105', '012F', '0131']; 
+    let cmdIndex = 0;
     let buffer = '';
-    let commandQueue = ['010C', '010D', '0105', '012F'];
-    let cmdIdx = 0;
 
-    const term = document.getElementById('debugTerminal');
-    const statusEl = document.getElementById('status');
+    const els = {
+        status: document.getElementById('status'),
+        raw: document.getElementById('rawResponse'),
+        connectBtn: document.getElementById('connectBtn'),
+        rpm: document.getElementById('rpmVal'),
+        speed: document.getElementById('speedVal'),
+        temp: document.getElementById('tempVal'),
+        fuel: document.getElementById('fuelVal'),
+        odo: document.getElementById('odoVal')
+    };
 
-    function log(msg, type = '') {
-        const time = new Date().toLocaleTimeString().split(' ')[0];
-        const span = document.createElement('div');
-        span.className = type;
-        span.innerText = `[${time}] ${msg}`;
-        term.appendChild(span);
-        term.scrollTop = term.scrollHeight;
-        
-        // Ограничиваем лог, чтобы не тормозил
-        if (term.childNodes.length > 100) term.removeChild(term.firstChild);
-    }
-
-    document.getElementById('connectBtn').addEventListener('click', async () => {
+    els.connectBtn.addEventListener('click', async () => {
         try {
             device = await navigator.usb.requestDevice({ 
                 filters: [{ vendorId: 0x0403, productId: 0x6001 }] 
@@ -94,37 +133,33 @@
             if (device.configuration === null) await device.selectConfiguration(1);
             await device.claimInterface(0);
 
-            // Настройка FTDI 38400
+            // Настройка FTDI (Baudrate 38400)
             await device.controlTransferOut({
                 requestType: 'vendor', recipient: 'device',
                 request: 0x03, value: 0x4138, index: 0x0000 
             });
 
-            statusEl.innerText = "STATUS: CONNECTED";
+            els.status.innerText = "ПОДКЛЮЧЕНО: " + device.productName;
+            els.connectBtn.style.display = "none";
             isConnected = true;
-            document.getElementById('connectBtn').style.display = "none";
 
-            log("USB подключен. Инициализация ELM...", "tx");
             startReading();
             
-            // Последовательный запуск
-            await sendOBD("ATZ"); // Сброс
-            setTimeout(() => sendOBD("ATE0"), 1000); // Выкл эхо
-            setTimeout(() => sendOBD("ATSP6"), 2000); // Протокол ISO 15765-4 (CAN)
-            setTimeout(poll, 3000);
+            // Инициализация
+            await sendOBD("ATZ");
+            setTimeout(() => sendOBD("ATE0"), 1000);
+            setTimeout(() => sendOBD("ATSP6"), 1500); // Протокол Ford CAN
+            setTimeout(pollCycle, 2000);
 
         } catch (err) {
-            log("ОШИБКА USB: " + err.message, "err");
+            els.status.innerText = "ОШИБКА: " + err.message;
         }
     });
 
     async function sendOBD(cmd) {
         if (!isConnected) return;
-        try {
-            log("> " + cmd, "tx");
-            const data = new TextEncoder().encode(cmd + '\r');
-            await device.transferOut(2, data);
-        } catch (e) { log("Ошибка отправки: " + e.message, "err"); }
+        const data = new TextEncoder().encode(cmd + '\r');
+        await device.transferOut(2, data);
     }
 
     async function startReading() {
@@ -135,45 +170,63 @@
                 buffer += text;
 
                 if (buffer.includes('>')) {
-                    const rawResponse = buffer.replace('>', '').trim();
-                    log("< " + rawResponse, "rx");
-                    parseData(rawResponse);
+                    let cleanResp = buffer.replace('>', '').trim();
+                    els.raw.innerText = "ОТВЕТ ЭБУ: " + cleanResp; // Видим ответ!
+                    processResponse(cleanResp);
                     buffer = '';
                 }
             } catch (err) {
-                log("Связь потеряна: " + err.message, "err");
                 isConnected = false;
+                els.status.innerText = "СВЯЗЬ ПОТЕРЯНА";
                 break;
             }
         }
     }
 
-    function poll() {
+    function pollCycle() {
         if (!isConnected) return;
-        sendOBD(commandQueue[cmdIdx]);
-        cmdIdx = (cmdIdx + 1) % commandQueue.length;
-        // Опрос раз в 800мс, чтобы не вешать адаптер
-        setTimeout(poll, 800);
+        sendOBD(commandQueue[cmdIndex]);
+        cmdIndex = (cmdIndex + 1) % commandQueue.length;
+        // Замедлили до 800мс для стабильности
+        setTimeout(pollCycle, 800); 
     }
 
-    function parseData(hex) {
-        const clean = hex.replace(/\s+/g, '');
+    function processResponse(hex) {
+        hex = hex.replace(/\s+/g, '').toUpperCase();
         
-        // RPM
-        if (clean.includes('410C')) {
-            let i = clean.indexOf('410C') + 4;
-            let val = (parseInt(clean.substring(i, i+2), 16) * 256 + parseInt(clean.substring(i+2, i+4), 16)) / 4;
-            document.getElementById('rpmVal').innerText = Math.round(val);
+        // RPM (41 0C)
+        if (hex.includes('410C')) {
+            let i = hex.indexOf('410C') + 4;
+            let rpm = (parseInt(hex.substring(i, i+2), 16) * 256 + parseInt(hex.substring(i+2, i+4), 16)) / 4;
+            if (!isNaN(rpm)) els.rpm.innerText = Math.round(rpm);
         }
-        // SPEED
-        if (clean.includes('410D')) {
-            let i = clean.indexOf('410D') + 4;
-            document.getElementById('speedVal').innerText = parseInt(clean.substring(i, i+2), 16);
+
+        // Speed (41 0D)
+        if (hex.includes('410D')) {
+            let i = hex.indexOf('410D') + 4;
+            let spd = parseInt(hex.substring(i, i+2), 16);
+            if (!isNaN(spd)) els.speed.innerText = spd;
         }
-        // TEMP
-        if (clean.includes('4105')) {
-            let i = clean.indexOf('4105') + 4;
-            document.getElementById('tempVal').innerText = parseInt(clean.substring(i, i+2), 16) - 40;
+
+        // Temp (41 05)
+        if (hex.includes('4105')) {
+            let i = hex.indexOf('4105') + 4;
+            let tmp = parseInt(hex.substring(i, i+2), 16) - 40;
+            if (!isNaN(tmp)) els.temp.innerText = tmp;
+        }
+
+        // Fuel (41 2F)
+        if (hex.includes('412F')) {
+            let i = hex.indexOf('412F') + 4;
+            let fuel = (parseInt(hex.substring(i, i+2), 16) / 255) * TANK_VOLUME;
+            if (!isNaN(fuel)) els.fuel.innerText = fuel.toFixed(1);
+        }
+
+        // Odo (41 31)
+        if (hex.includes('4131')) {
+            let i = hex.indexOf('4131') + 4;
+            let odo = parseInt(hex.substring(i, i+4), 16);
+            if (!isNaN(odo)) els.odo.innerText = odo;
         }
     }
 </script>
