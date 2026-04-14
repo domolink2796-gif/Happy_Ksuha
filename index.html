@@ -3,26 +3,26 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>X-CONECT: FUEL FINAL 2008</title>
+    <title>X-CONECT: RE-STYLE SNIFFER</title>
     <style>
         body { background: #000; color: #0f0; font-family: monospace; margin: 0; padding: 10px; text-align: center; }
-        .fuel-box { border: 4px solid #00bcff; padding: 25px; border-radius: 20px; background: #050505; margin: 15px 0; }
-        .fuel-val { font-size: 6em; display: block; color: #00bcff; font-weight: bold; }
+        .fuel-box { border: 4px solid #ff0055; padding: 25px; border-radius: 20px; background: #050505; margin: 15px 0; box-shadow: 0 0 20px rgba(255, 0, 85, 0.2); }
+        .fuel-val { font-size: 6em; display: block; color: #ff0055; font-weight: bold; }
         .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
         .card { border: 1px solid #222; padding: 12px; border-radius: 10px; background: #080808; }
-        .val { font-size: 2em; display: block; color: #0f0; }
+        .val { font-size: 1.8em; display: block; color: #0f0; }
         #log { height: 100px; overflow-y: auto; border: 1px solid #111; margin-top: 15px; font-size: 10px; text-align: left; padding: 8px; color: #444; }
-        button { background: #00bcff; border: none; color: #000; padding: 20px; font-size: 1.1em; border-radius: 12px; cursor: pointer; width: 100%; font-weight: bold; }
+        button { background: #ff0055; border: none; color: #fff; padding: 20px; font-size: 1.2em; border-radius: 12px; cursor: pointer; width: 100%; font-weight: bold; }
     </style>
 </head>
 <body>
 
-    <button id="connectBtn">ЗАПУСК: СКАНЕР ТОПЛИВА 2008</button>
+    <button id="connectBtn">АКТИВИРОВАТЬ ПЕРЕХВАТ 0x405</button>
 
     <div class="fuel-box">
-        <span style="color: #00bcff; font-size: 0.9em;">УРОВЕНЬ В БАКЕ</span>
+        <span style="color: #ff0055; font-size: 0.9em;">БЕНЗИН (ПРЯМОЙ ПЕРЕХВАТ)</span>
         <span id="fuel" class="fuel-val">--</span>
-        <span style="color: #00bcff; font-size: 1.5em;">LITERS</span>
+        <span style="color: #ff0055; font-size: 1.5em;">LITERS</span>
     </div>
 
     <div class="grid">
@@ -30,7 +30,7 @@
         <div class="card"><span style="color:#666; font-size:0.7em;">RPM</span><span id="rpm" class="val">0</span></div>
     </div>
 
-    <div id="log">Готов к поиску на рестайлинге...</div>
+    <div id="log">Ожидание пакетов шины...</div>
 
     <script>
         const logDiv = document.getElementById('log');
@@ -51,12 +51,13 @@
                 let divisor = Math.floor(3000000 / 38400);
                 await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x03, value: divisor, index: 0 });
 
-                log("ПОДКЛЮЧЕНО. СКОРОСТЬ OK.");
+                log("ELS27 ГОТОВ. РЕЖИМ ПЕРЕХВАТА.");
                 await send("ATZ");
                 await sleep(500);
                 await send("ATE0");
                 await send("ATSP6");
-                await send("ATH0"); 
+                await send("ATH1"); // ВКЛЮЧАЕМ ЗАГОЛОВКИ (ОБЯЗАТЕЛЬНО!)
+                await send("ATCAF0"); // Выключаем автоформатирование
 
                 isRunning = true;
                 mainLoop();
@@ -68,7 +69,7 @@
                 await device.transferOut(2, new TextEncoder().encode(cmd + "\r"));
                 await sleep(wait);
                 let res = await device.transferIn(1, 128);
-                return new TextDecoder().decode(res.data).replace(/\s/g, '').replace(/>/g, '');
+                return new TextDecoder().decode(res.data).replace(/\s/g, '');
             } catch (e) { return ""; }
         }
 
@@ -77,47 +78,38 @@
         async function mainLoop() {
             let cycle = 0;
             while (isRunning) {
-                // 1. ЖИВЫЕ ОБОРОТЫ И ТЕМПЕРАТУРА (Адрес 7E0)
-                await send("ATSH7E0", 30);
+                // 1. ОБОРОТЫ И ТЕМПЕРАТУРА
+                await send("ATSH7E0", 20);
                 let rRPM = await send("010C", 60);
                 if (rRPM.includes("410C")) {
                     let idx = rRPM.indexOf("410C") + 4;
                     document.getElementById('rpm').innerText = Math.round(((parseInt(rRPM.substr(idx, 2), 16) * 256) + parseInt(rRPM.substr(idx + 2, 2), 16)) / 4);
                 }
 
-                let rTemp = await send("0105", 60);
-                if (rTemp.includes("4105")) {
-                    document.getElementById('temp').innerText = (parseInt(rTemp.substr(rTemp.indexOf("4105") + 4, 2), 16) - 40) + "°C";
-                }
-
-                // 2. БЕНЗИН (Смена тактики для рестайлинга 2008)
-                if (cycle % 8 === 0) {
-                    log("ИЩУ БАК...");
-                    // Переключаемся на ПРИБОРНУЮ ПАНЕЛЬ
-                    await send("ATSH720", 30);
+                // 2. БЕНЗИН ЧЕРЕЗ МОНИТОРИНГ ШИНЫ (СНИФФЕР)
+                if (cycle % 4 === 0) {
+                    log("СКАНИРУЮ ПОТОК...");
+                    // Слушаем только сообщения от ID 405 (Fuel Status)
+                    await send("ATCF405", 20); // Фильтр на 405
+                    await send("ATCM7FF", 20); // Маска
                     
-                    // Способ 1: Стандарт через приборку
-                    let res1 = await send("012F", 150);
-                    if (res1.includes("412F")) {
-                        let val = parseInt(res1.substr(res1.indexOf("412F") + 4, 2), 16);
-                        document.getElementById('fuel').innerText = Math.round(val * 45 / 255);
-                    } else {
-                        // Способ 2: Прямой запрос остатка (Fuel Tank Level)
-                        let res2 = await send("220461", 150);
-                        if (res2.includes("620461")) {
-                            let hex = res2.substr(res2.indexOf("620461") + 6, 2);
-                            document.getElementById('fuel').innerText = Math.round(parseInt(hex, 16) * 45 / 255);
-                        } else {
-                            // Способ 3: Для самых капризных рестайлов
-                            let res3 = await send("221106", 150);
-                            if (res3.includes("621106")) {
-                                let hex = res3.substr(res3.indexOf("621106") + 6, 2);
-                                document.getElementById('fuel').innerText = Math.round(parseInt(hex, 16) / 2);
-                            }
+                    let monitor = await send("ATMA", 300); // Слушаем 0.3 сек
+                    
+                    if (monitor.includes("405")) {
+                        log("ПАКЕТ 405 ПОЙМАН!");
+                        // Пакет выглядит как: 405 08 XX YY ... где XX или YY — топливо
+                        let pos = monitor.indexOf("405") + 5; 
+                        let fuelHex = monitor.substr(pos, 2);
+                        let val = parseInt(fuelHex, 16);
+                        
+                        // Пересчет: обычно 0-255 это пустой-полный (45л)
+                        let liters = Math.round(val * 45 / 255);
+                        if (liters >= 0 && liters <= 50) {
+                            document.getElementById('fuel').innerText = liters;
                         }
                     }
-                    // Возвращаемся к мотору для плавных оборотов
-                    await send("ATSH7E0", 30);
+                    
+                    await send("ATAR", 20); // Сброс фильтров для возврата к RPM
                 }
 
                 cycle++;
