@@ -3,33 +3,37 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>X-CONECT: UNLOCK FUEL</title>
+    <title>X-CONECT: FUEL MONITOR</title>
     <style>
         body { background: #000; color: #0f0; font-family: monospace; margin: 0; padding: 10px; text-align: center; }
-        .fuel-box { border: 4px solid #00bcff; padding: 25px; border-radius: 20px; background: #050505; margin: 15px 0; }
-        .fuel-val { font-size: 6em; display: block; color: #00bcff; font-weight: bold; }
-        #log { height: 150px; overflow-y: auto; border: 1px solid #111; margin-top: 15px; font-size: 10px; text-align: left; padding: 8px; color: #444; }
-        button { background: #00bcff; border: none; color: #000; padding: 20px; font-size: 1.1em; border-radius: 12px; cursor: pointer; width: 100%; font-weight: bold; }
+        .fuel-box { border: 4px solid #00bcff; padding: 30px; border-radius: 20px; background: #050505; margin: 20px 0; box-shadow: 0 0 20px rgba(0,188,255,0.2); }
+        .fuel-val { font-size: 7em; display: block; color: #00bcff; font-weight: bold; text-shadow: 0 0 15px #00bcff; }
+        .unit { color: #00bcff; font-size: 1.5em; letter-spacing: 5px; }
+        #log { height: 180px; overflow-y: auto; border: 1px solid #1a1a1a; margin-top: 20px; font-size: 11px; text-align: left; padding: 10px; color: #555; background: #050505; }
+        button { background: #00bcff; border: none; color: #000; padding: 20px; font-size: 1.2em; border-radius: 15px; cursor: pointer; width: 100%; font-weight: bold; text-transform: uppercase; }
+        .status { font-size: 0.8em; color: #444; margin-bottom: 10px; }
     </style>
 </head>
 <body>
 
-    <button id="connectBtn">ВЗЛОМАТЬ СЕССИЮ И БАК</button>
+    <button id="connectBtn">ЗАПУСТИТЬ МОНИТОР БАКА</button>
 
     <div class="fuel-box">
-        <span style="color: #00bcff; font-size: 0.9em;">УРОВЕНЬ ТОПЛИВА</span>
+        <span class="unit">ТОПЛИВО</span>
         <span id="fuel" class="fuel-val">--</span>
-        <span style="color: #00bcff; font-size: 1.5em;">LITERS</span>
+        <span class="unit">ЛИТРОВ</span>
     </div>
 
-    <div id="log">Ожидание команды...</div>
+    <div class="status" id="status">Статус: Ожидание подключения...</div>
+    <div id="log">Лог системы перехвата...</div>
 
     <script>
         const logDiv = document.getElementById('log');
+        const statusDiv = document.getElementById('status');
         let device, isRunning = false;
 
-        function log(msg) {
-            logDiv.innerHTML += `> ${msg}<br>`;
+        function log(msg, color = "#555") {
+            logDiv.innerHTML += `<span style="color:${color}">> ${msg}</span><br>`;
             logDiv.scrollTop = logDiv.scrollHeight;
         }
 
@@ -43,21 +47,18 @@
                 let divisor = Math.floor(3000000 / 38400);
                 await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x03, value: divisor, index: 0 });
 
-                log("ПОДКЛЮЧЕНО. АКТИВАЦИЯ...");
+                log("ПОДКЛЮЧЕНО К ШИНЕ", "#0f0");
+                statusDiv.innerText = "Статус: АНАЛИЗ ПАКЕТОВ...";
+                
                 await send("ATZ");
                 await send("ATE0");
-                await send("ATSP6");
-                await send("ATH0"); 
-
-                // ПЫТАЕМСЯ ОТКРЫТЬ СЕССИЮ
-                await send("ATSH720");
-                log("ОТКРЫВАЮ СЕССИЮ...");
-                await send("1003", 200); // Extended Diagnostic Session
-                await send("1001", 200); // Default Session (иногда помогает «дернуть» блок)
+                await send("ATSP6"); // ISO 15765-4 (CAN 11/500)
+                await send("ATH1"); // Включаем заголовки, чтобы видеть кто шлет
+                await send("ATCAF0"); // Выключаем автоформатирование (чистый поток)
 
                 isRunning = true;
-                mainLoop();
-            } catch (err) { log("ОШИБКА: " + err); }
+                monitorFuel();
+            } catch (err) { log("ОШИБКА: " + err, "#f00"); }
         });
 
         async function send(cmd, wait = 100) {
@@ -65,34 +66,37 @@
                 await device.transferOut(2, new TextEncoder().encode(cmd + "\r"));
                 await sleep(wait);
                 let res = await device.transferIn(1, 128);
-                let text = new TextDecoder().decode(res.data).replace(/\s/g, '').replace(/>/g, '');
-                if (text) log(`${cmd} -> ${text}`);
-                return text;
+                return new TextDecoder().decode(res.data).replace(/\s/g, '');
             } catch (e) { return ""; }
         }
 
         function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
-        async function mainLoop() {
+        async function monitorFuel() {
             while (isRunning) {
-                await send("ATSH720", 20);
+                // Пытаемся мониторить конкретный адрес приборки в режиме прослушки (Monitor All)
+                // На Fusion данные о баке часто пролетают в пакетах 4C0 или 4B0
+                let raw = await send("ATMA", 500); // Команда мониторинга всей шины на полсекунды
                 
-                // Пробуем снова 220461 после попытки входа в сессию
-                let res = await send("220461", 150);
-                
-                if (res.includes("620461")) {
-                    let hex = res.substr(res.indexOf("620461") + 6, 2);
-                    let val = parseInt(hex, 16);
-                    document.getElementById('fuel').innerText = Math.round(val * 45 / 255);
-                } else {
-                    // Если 220461 не дает, пробуем стандартный 012F, но с прогревом сессии
-                    let res2 = await send("012F", 150);
-                    if (res2.includes("412F")) {
-                        let val2 = parseInt(res2.substr(res2.indexOf("412F") + 4, 2), 16);
-                        document.getElementById('fuel').innerText = Math.round(val2 * 45 / 255);
+                if (raw) {
+                    log("RAW DATA: " + raw.substring(0, 20) + "...");
+                    
+                    // Поиск паттерна топлива (экспериментально для твоей прошивки)
+                    // Обычно это 01 2F в потоке или специфический ID приборки
+                    if (raw.includes("4C0")) { 
+                        let pos = raw.indexOf("4C0");
+                        // Примерная логика парсинга байта из потока
+                        let fuelByte = raw.substr(pos + 10, 2); 
+                        let val = parseInt(fuelByte, 16);
+                        if (!isNaN(val)) {
+                            document.getElementById('fuel').innerText = Math.round(val * 45 / 255);
+                        }
                     }
                 }
-                await sleep(1000); // Бак не нужно обновлять часто
+                
+                // Чтобы адаптер не завис в ATMA, сбрасываем его коротким запросом
+                await device.transferOut(2, new TextEncoder().encode("\r")); 
+                await sleep(100);
             }
         }
     </script>
