@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>X-CONECT: FUEL FIX 2008</title>
+    <title>X-CONECT: FINAL FUEL SCAN</title>
     <style>
         body { background: #000; color: #0f0; font-family: monospace; margin: 0; padding: 10px; text-align: center; }
         .fuel-box { border: 4px solid #00bcff; padding: 25px; border-radius: 20px; background: #050505; margin: 15px 0; }
@@ -17,10 +17,10 @@
 </head>
 <body>
 
-    <button id="connectBtn">ЗАПУСК: ФИНАЛЬНЫЙ ТЕСТ БАКА</button>
+    <button id="connectBtn">ЗАПУСК: ТЕСТ БЛОКА GEM (760)</button>
 
     <div class="fuel-box">
-        <span style="color: #00bcff; font-size: 0.9em;">ОСТАТОК В БАКЕ (L)</span>
+        <span style="color: #00bcff; font-size: 0.9em;">ТОПЛИВО (L)</span>
         <span id="fuel" class="fuel-val">--</span>
         <span style="color: #00bcff; font-size: 1.5em;">ЛИТРОВ</span>
     </div>
@@ -30,7 +30,7 @@
         <div class="card"><span id="rpm" class="val">0</span><span style="color:#666; font-size:0.7em;">RPM</span></div>
     </div>
 
-    <div id="log">Лог системы...</div>
+    <div id="log">Система готова...</div>
 
     <script>
         const logDiv = document.getElementById('log');
@@ -55,7 +55,7 @@
                 await send("ATZ");
                 await sleep(500);
                 await send("ATE0");
-                await send("ATSP6"); // Протокол ISO 15765-4 CAN (11 bit ID, 500 Kbaud)
+                await send("ATSP6");
                 await send("ATH0"); 
 
                 isRunning = true;
@@ -63,7 +63,7 @@
             } catch (err) { log("ОШИБКА: " + err); }
         });
 
-        async function send(cmd, wait = 100) {
+        async function send(cmd, wait = 80) {
             try {
                 await device.transferOut(2, new TextEncoder().encode(cmd + "\r"));
                 await sleep(wait);
@@ -77,9 +77,8 @@
         async function mainLoop() {
             let cycle = 0;
             while (isRunning) {
-                // 1. ОБОРОТЫ И ТЕМПЕРАТУРА (Работают всегда хорошо)
-                await send("ATSH7E0", 20); // Заголовок для двигателя
-                
+                // 1. ОБОРОТЫ И ТЕМПЕРАТУРА
+                await send("ATSH7E0", 20);
                 let rRPM = await send("010C", 60);
                 if (rRPM.includes("410C")) {
                     let idx = rRPM.indexOf("410C") + 4;
@@ -91,33 +90,27 @@
                     document.getElementById('temp').innerText = (parseInt(rTemp.substr(rTemp.indexOf("4105") + 4, 2), 16) - 40) + "°C";
                 }
 
-                // 2. БЕНЗИН (Метод для 2008 Рестайл)
+                // 2. БЕНЗИН (ФИНАЛЬНАЯ ПОПЫТКА)
                 if (cycle % 10 === 0) {
-                    // Обращаемся к приборной панели
-                    await send("ATSH720", 30);
+                    // А: Пробуем Блок GEM/BCM (760)
+                    await send("ATSH760", 30);
+                    let resGEM = await send("012F", 150);
                     
-                    // Самый вероятный PID для рестайла - Fuel Tank Level (Percent)
-                    let res = await send("220461", 150);
-                    
-                    if (res.includes("620461")) {
-                        let hex = res.substr(res.indexOf("620461") + 6, 2);
-                        let val = parseInt(hex, 16);
-                        // На рестайле 2008 часто 0-255 это проценты (2.55 = 1%)
-                        // Бак 45 литров. Расчет: (val / 255) * 45
-                        let liters = Math.round(val * 45 / 255);
-                        document.getElementById('fuel').innerText = liters;
+                    if (resGEM.includes("412F")) {
+                        let val = parseInt(resGEM.substr(resGEM.indexOf("412F") + 4, 2), 16);
+                        document.getElementById('fuel').innerText = Math.round(val * 45 / 255);
                     } else {
-                        // Запасной запрос для 2008 года
-                        let res2 = await send("22042C", 150);
-                        if (res2.includes("62042C")) {
-                            let hex2 = res2.substr(res2.indexOf("62042C") + 6, 2);
-                            document.getElementById('fuel').innerText = Math.round(parseInt(hex2, 16) * 45 / 255);
+                        // Б: Пробуем стандарт через приборку еще раз (720)
+                        await send("ATSH720", 30);
+                        let resHEC = await send("012F", 150);
+                        if (resHEC.includes("412F")) {
+                            let val = parseInt(resHEC.substr(resHEC.indexOf("412F") + 4, 2), 16);
+                            document.getElementById('fuel').innerText = Math.round(val * 45 / 255);
                         }
                     }
                 }
-
                 cycle++;
-                await sleep(30);
+                await sleep(20);
             }
         }
     </script>
