@@ -3,22 +3,22 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>X-CONECT: FORD FINAL FIX</title>
+    <title>X-CONECT: FORD ULTIMATE SCAN</title>
     <style>
         body { background: #000; color: #0f0; font-family: monospace; margin: 0; padding: 10px; text-align: center; }
-        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px; }
+        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 15px; }
         .card { border: 1px solid #333; padding: 15px; border-radius: 10px; background: #050505; }
-        .val { font-size: 2em; display: block; color: #0f0; font-weight: bold; }
-        .label { font-size: 0.7em; color: #00bcff; text-transform: uppercase; }
-        #log { height: 150px; overflow-y: auto; border: 1px solid #222; margin-top: 15px; font-size: 10px; text-align: left; padding: 5px; color: #666; background: #080808; }
+        .val { font-size: 2.2em; display: block; color: #0f0; font-weight: bold; }
+        .label { font-size: 0.75em; color: #00bcff; text-transform: uppercase; }
+        #log { height: 120px; overflow-y: auto; border: 1px solid #222; margin-top: 15px; font-size: 10px; text-align: left; padding: 5px; color: #666; background: #080808; }
         button { background: #0f0; border: none; color: #000; padding: 15px; font-size: 1em; border-radius: 10px; cursor: pointer; width: 100%; font-weight: bold; }
         .full-width { grid-column: span 2; }
     </style>
 </head>
 <body>
 
-    <h2 style="color: #ff3c00; margin: 5px;">X-CONECT SYSTEM</h2>
-    <button id="connectBtn">ПОДКЛЮЧИТЬ USB</button>
+    <h2 style="color: #ff3c00; margin: 5px;">X-CONECT BRUTEFORCE</h2>
+    <button id="connectBtn">ЗАПУСТИТЬ ВСЕ МОДУЛИ</button>
 
     <div class="grid">
         <div class="card full-width">
@@ -31,7 +31,7 @@
         <div class="card"><span class="label">Обороты</span><span id="rpm" class="val">0</span></div>
     </div>
 
-    <div id="log">Система готова...</div>
+    <div id="log">Система готова к поиску...</div>
 
     <script>
         const logDiv = document.getElementById('log');
@@ -53,12 +53,12 @@
                 let divisor = Math.floor(3000000 / 38400);
                 await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x03, value: divisor, index: 0 });
 
-                log("ИНИЦИАЛИЗАЦИЯ...");
+                log("ИНИЦИАЛИЗАЦИЯ ШИНЫ...");
                 await send("ATZ");
                 await sleep(500);
                 await send("ATE0");
                 await send("ATH1");
-                await send("ATSP6"); 
+                await send("ATSP6"); // Стандартный CAN
                 
                 isRunning = true;
                 mainLoop();
@@ -79,50 +79,59 @@
         async function mainLoop() {
             let counter = 0;
             while (isRunning) {
-                // 1. ОБОРОТЫ И СКОРОСТЬ (Каждый цикл)
+                // --- СТАНДАРТНЫЕ ДАННЫЕ (Работают всегда) ---
                 let rRPM = await send("010C");
                 if (rRPM.includes("410C")) {
-                    let idx = rRPM.indexOf("410C") + 4;
-                    let a = parseInt(rRPM.substr(idx, 2), 16);
-                    let b = parseInt(rRPM.substr(idx + 2, 2), 16);
+                    let a = parseInt(rRPM.substr(rRPM.indexOf("410C")+4, 2), 16);
+                    let b = parseInt(rRPM.substr(rRPM.indexOf("410C")+6, 2), 16);
                     document.getElementById('rpm').innerText = Math.round(((a * 256) + b) / 4);
                 }
 
                 let rSpeed = await send("010D");
                 if (rSpeed.includes("410D")) {
-                    document.getElementById('speed').innerText = parseInt(rSpeed.substr(rSpeed.indexOf("410D") + 4, 2), 16);
+                    document.getElementById('speed').innerText = parseInt(rSpeed.substr(rSpeed.indexOf("410D")+4, 2), 16);
                 }
 
-                // 2. ТЕМПЕРАТУРА (Раз в 5 циклов)
-                if (counter % 5 === 0) {
-                    let rTemp = await send("0105");
-                    if (rTemp.includes("4105")) {
-                        document.getElementById('temp').innerText = parseInt(rTemp.substr(rTemp.indexOf("4105") + 4, 2), 16) - 40;
+                let rTemp = await send("0105");
+                if (rTemp.includes("4105")) {
+                    document.getElementById('temp').innerText = parseInt(rTemp.substr(rTemp.indexOf("4105")+4, 2), 16) - 40;
+                }
+
+                // --- ПОИСК СКРЫТЫХ ДАННЫХ (Раз в 10 циклов) ---
+                if (counter % 10 === 0) {
+                    // 1. Пытаемся найти ТОПЛИВО (Перебор 4-х методов)
+                    let fuelMethods = ["220461", "22042C", "012F", "220506"];
+                    for (let m of fuelMethods) {
+                        let res = await send(m);
+                        if (res.includes("62") || res.includes("412F")) {
+                            let raw = parseInt(res.substr(res.length - 2, 2), 16);
+                            document.getElementById('fuel').innerText = Math.round((raw * 45) / 255);
+                            break; 
+                        }
                     }
-                }
 
-                // 3. БАК И ПРОБЕГ (Раз в 15 циклов через обращение к приборке)
-                if (counter % 15 === 0) {
-                    // Переключаемся на приборную панель
+                    // 2. Пытаемся найти ПРОБЕГ (Перебор адресов PCM и HEC)
+                    let odoFound = false;
+                    // Метод A: Прямой запрос приборки
                     await send("ATSH720"); 
-
-                    // БАК
-                    let rFuel = await send("220461");
-                    if (rFuel.includes("620461")) {
-                        let fRaw = parseInt(rFuel.substr(rFuel.indexOf("620461") + 6, 2), 16);
-                        document.getElementById('fuel').innerText = Math.round((fRaw * 45) / 255);
+                    let rOdo1 = await send("22DD01");
+                    if (rOdo1.includes("62DD01")) {
+                        let val = parseInt(rOdo1.substr(rOdo1.indexOf("62DD01")+6, 6), 16);
+                        document.getElementById('odo').innerText = val.toLocaleString();
+                        odoFound = true;
                     }
-
-                    // ПРОБЕГ
-                    let rOdo = await send("22DD01");
-                    if (rOdo.includes("62DD01")) {
-                        let hex = rOdo.substr(rOdo.indexOf("62DD01") + 6, 6);
-                        let val = parseInt(hex, 16);
-                        if (!isNaN(val)) document.getElementById('odo').innerText = val.toLocaleString();
+                    
+                    // Метод B: Если приборка молчит, пробуем PCM
+                    if (!odoFound) {
+                        await send("ATSH7E0");
+                        let rOdo2 = await send("2204FE");
+                        if (rOdo2.includes("6204FE")) {
+                            let val = parseInt(rOdo2.substr(rOdo2.indexOf("6204FE")+6, 6), 16);
+                            document.getElementById('odo').innerText = val.toLocaleString();
+                        }
                     }
-
-                    // Возвращаемся в обычный режим
-                    await send("ATSH"); 
+                    
+                    await send("ATSH"); // Сброс заголовка в авто
                 }
 
                 counter++;
