@@ -69,16 +69,11 @@
                 device = await navigator.usb.requestDevice({ 
                     filters: [{ vendorId: 0x0403, productId: 0x6001 }] 
                 });
-
                 await device.open();
-                log("USB ПОДКЛЮЧЕНО");
-                
                 await device.selectConfiguration(1);
                 await device.claimInterface(0);
-
                 await setupFTDI(38400);
-                log("ELS27 ГОТОВ. ИНИЦИАЛИЗАЦИЯ...");
-                
+                log("USB ПОДКЛЮЧЕНО. ИНИЦИАЛИЗАЦИЯ...");
                 await initELM();
             } catch (err) {
                 log("ОШИБКА: " + err);
@@ -96,10 +91,10 @@
             try {
                 let data = new TextEncoder().encode(cmd + "\r");
                 await device.transferOut(2, data);
-                await sleep(250); 
-                
-                let result = await device.transferIn(1, 128); // Увеличен буфер
-                return new TextDecoder().decode(result.data).trim();
+                await sleep(350); 
+                let result = await device.transferIn(1, 128);
+                let text = new TextDecoder().decode(result.data).trim();
+                return text.replace(/\s/g, ''); // Убираем все пробелы сразу
             } catch (e) { return ""; }
         }
 
@@ -108,74 +103,51 @@
             await sleep(500);
             await sendCommand("ATE0");
             await sendCommand("ATH1");
-            await sendCommand("ATSP6"); // ПРИНУДИТЕЛЬНО CAN ISO 15765-4 (FORD)
-            log("ПРОТОКОЛ CAN УСТАНОВЛЕН");
+            await sendCommand("ATSP6"); 
+            log("ПРОТОКОЛ УСТАНОВЛЕН. ПОИСК ДАННЫХ...");
             startPolling();
         }
 
         function startPolling() {
             setInterval(async () => {
-                // Обороты
+                // Обороты (Стандарт)
                 let rRPM = await sendCommand("010C");
-                parseRPM(rRPM);
-
-                // Температура
-                let rTemp = await sendCommand("0105");
-                parseSimple(rTemp, "4105", 'temp', -40);
-
-                // Скорость
-                let rSpeed = await sendCommand("010D");
-                parseSimple(rSpeed, "410D", 'speed');
-
-                // Топливо
-                let rFuel = await sendCommand("012F");
-                parseFuel(rFuel);
-
-                // Пробег (Пробуем стандартный PID Ford)
-                let rOdo = await sendCommand("220DD4");
-                parseOdo(rOdo);
-            }, 1000);
-        }
-
-        function parseSimple(hex, pid, id, offset = 0) {
-            let clean = hex.replace(/\s/g, '');
-            let idx = clean.indexOf(pid);
-            if (idx !== -1) {
-                let val = parseInt(clean.substr(idx + 4, 2), 16) + offset;
-                if (!isNaN(val)) {
-                    document.getElementById(id).innerHTML = val + (id === 'speed' ? '<small style="font-size: 0.5em"> км/ч</small>' : '');
+                if (rRPM.includes("410C")) {
+                    let a = parseInt(rRPM.substr(rRPM.indexOf("410C")+4, 2), 16);
+                    let b = parseInt(rRPM.substr(rRPM.indexOf("410C")+6, 2), 16);
+                    document.getElementById('rpm').innerText = Math.round(((a * 256) + b) / 4);
                 }
-            }
-        }
 
-        function parseRPM(hex) {
-            let clean = hex.replace(/\s/g, '');
-            let idx = clean.indexOf("410C");
-            if (idx !== -1) {
-                let a = parseInt(clean.substr(idx + 4, 2), 16);
-                let b = parseInt(clean.substr(idx + 6, 2), 16);
-                let rpm = Math.round(((a * 256) + b) / 4);
-                if (!isNaN(rpm)) document.getElementById('rpm').innerText = rpm;
-            }
-        }
+                // Температура (Стандарт)
+                let rTemp = await sendCommand("0105");
+                if (rTemp.includes("4105")) {
+                    let t = parseInt(rTemp.substr(rTemp.indexOf("4105")+4, 2), 16) - 40;
+                    document.getElementById('temp').innerText = t;
+                }
 
-        function parseFuel(hex) {
-            let clean = hex.replace(/\s/g, '');
-            let idx = clean.indexOf("412F");
-            if (idx !== -1) {
-                let raw = parseInt(clean.substr(idx + 4, 2), 16);
-                let liters = Math.round((raw * 52) / 255); 
-                if (!isNaN(liters)) document.getElementById('fuel').innerText = liters;
-            }
-        }
+                // Скорость (Стандарт)
+                let rSpeed = await sendCommand("010D");
+                if (rSpeed.includes("410D")) {
+                    let s = parseInt(rSpeed.substr(rSpeed.indexOf("410D")+4, 2), 16);
+                    document.getElementById('speed').innerHTML = s + '<small style="font-size: 0.5em"> км/ч</small>';
+                }
 
-        function parseOdo(hex) {
-            let clean = hex.replace(/\s/g, '');
-            let idx = clean.indexOf("620DD4");
-            if (idx !== -1) {
-                let km = parseInt(clean.substr(idx + 6, 6), 16);
-                if (!isNaN(km)) document.getElementById('odo').innerText = km.toLocaleString() + " км";
-            }
+                // Топливо (Ford PID)
+                let rFuel = await sendCommand("22042C");
+                if (rFuel.includes("62042C")) {
+                    let raw = parseInt(rFuel.substr(rFuel.indexOf("62042C")+6, 2), 16);
+                    let liters = Math.round((raw * 52) / 255); 
+                    document.getElementById('fuel').innerText = liters;
+                }
+
+                // Пробег (Ford PID - Dash)
+                let rOdo = await sendCommand("2204FE");
+                if (rOdo.includes("6204FE")) {
+                    let hex = rOdo.substr(rOdo.indexOf("6204FE")+6, 6);
+                    let km = parseInt(hex, 16);
+                    if (!isNaN(km)) document.getElementById('odo').innerText = km.toLocaleString() + " км";
+                }
+            }, 1000);
         }
     </script>
 </body>
