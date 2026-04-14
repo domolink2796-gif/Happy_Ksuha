@@ -3,34 +3,33 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>X-CONECT: FUEL FINAL</title>
+    <title>X-CONECT: STABLE DASH</title>
     <style>
         body { background: #000; color: #0f0; font-family: monospace; margin: 0; padding: 10px; text-align: center; }
-        .fuel-box { border: 4px solid #00bcff; padding: 30px; border-radius: 20px; background: #050505; margin: 20px 0; }
-        .fuel-val { font-size: 8em; display: block; color: #00bcff; font-weight: bold; }
-        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 20px; }
-        .card { border: 1px solid #222; padding: 15px; border-radius: 10px; background: #080808; }
-        .val { font-size: 2.5em; display: block; color: #0f0; }
-        #log { height: 120px; overflow-y: auto; border: 1px solid #1a1a1a; margin-top: 15px; font-size: 11px; text-align: left; padding: 8px; color: #444; }
-        button { background: #00bcff; border: none; color: #000; padding: 25px; font-size: 1.2em; border-radius: 15px; cursor: pointer; width: 100%; font-weight: bold; }
+        .fuel-box { border: 2px solid #222; padding: 20px; border-radius: 20px; background: #050505; margin: 15px 0; }
+        .fuel-val { font-size: 5em; display: block; color: #00bcff; font-weight: bold; }
+        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+        .card { border: 1px solid #222; padding: 12px; border-radius: 10px; background: #080808; }
+        .val { font-size: 3em; display: block; color: #0f0; }
+        #log { height: 100px; overflow-y: auto; border: 1px solid #111; margin-top: 15px; font-size: 10px; text-align: left; padding: 8px; color: #444; }
+        button { background: #00bcff; border: none; color: #000; padding: 20px; font-size: 1.1em; border-radius: 12px; cursor: pointer; width: 100%; font-weight: bold; }
     </style>
 </head>
 <body>
 
-    <button id="connectBtn">ЗАПУСТИТЬ МОНИТОРИНГ</button>
+    <button id="connectBtn">ВОССТАНОВИТЬ ПАНЕЛЬ</button>
 
     <div class="fuel-box">
-        <span style="color: #00bcff; font-size: 1em;">ТОПЛИВО В БАКЕ</span>
+        <span style="color: #666; font-size: 0.9em;">ТОПЛИВО (L)</span>
         <span id="fuel" class="fuel-val">--</span>
-        <span style="color: #00bcff; font-size: 1.5em;">ЛИТРОВ</span>
     </div>
 
     <div class="grid">
-        <div class="card"><span id="temp" class="val">--</span><span style="color:#666;">TEMP</span></div>
-        <div class="card"><span id="rpm" class="val">0</span><span style="color:#666;">RPM</span></div>
+        <div class="card"><span id="temp" class="val">--</span><span style="color:#666; font-size:0.7em;">TEMP</span></div>
+        <div class="card"><span id="rpm" class="val">0</span><span style="color:#666; font-size:0.7em;">RPM</span></div>
     </div>
 
-    <div id="log">Ожидание данных...</div>
+    <div id="log">Лог: Готов к работе...</div>
 
     <script>
         const logDiv = document.getElementById('log');
@@ -48,17 +47,14 @@
                 await device.selectConfiguration(1);
                 await device.claimInterface(0);
                 
-                // Устанавливаем скорость 500к для CAN
-                let divisor = Math.floor(3000000 / 500000); 
+                let divisor = Math.floor(3000000 / 38400);
                 await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x03, value: divisor, index: 0 });
 
-                log("СВЯЗЬ ОК. НАСТРОЙКА ФИЛЬТРОВ...");
+                log("СВЯЗЬ ВОССТАНОВЛЕНА.");
                 await send("ATZ");
+                await send("ATE0");
                 await send("ATSP6");
-                await send("ATH1"); 
-                // Ставим фильтр на адрес приборки (0x4C0 или 0x4B0), где лежат данные бака
-                await send("ATCF 400"); 
-                await send("ATCM F00");
+                await send("ATH0"); 
 
                 isRunning = true;
                 mainLoop();
@@ -66,40 +62,44 @@
         });
 
         async function send(cmd, wait = 100) {
-            await device.transferOut(2, new TextEncoder().encode(cmd + "\r"));
-            await sleep(wait);
-            let res = await device.transferIn(1, 128);
-            return new TextDecoder().decode(res.data).replace(/\s/g, '');
+            try {
+                await device.transferOut(2, new TextEncoder().encode(cmd + "\r"));
+                await sleep(wait);
+                let res = await device.transferIn(1, 128);
+                return new TextDecoder().decode(res.data).replace(/\s/g, '').replace(/>/g, '');
+            } catch (e) { return ""; }
         }
 
         function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
         async function mainLoop() {
+            let cycle = 0;
             while (isRunning) {
-                // 1. Быстрый запрос оборотов
-                await send("ATSH 7E0", 20);
-                let rRPM = await send("010C", 50);
+                // 1. ДВИГАТЕЛЬ (Работает всегда)
+                await send("ATSH7E0", 20);
+                
+                let rRPM = await send("010C", 60);
                 if (rRPM.includes("410C")) {
                     let idx = rRPM.indexOf("410C") + 4;
                     document.getElementById('rpm').innerText = Math.round(((parseInt(rRPM.substr(idx, 2), 16) * 256) + parseInt(rRPM.substr(idx + 2, 2), 16)) / 4);
                 }
 
-                // 2. Попытка вытянуть топливо через "пассивный" режим мониторинга конкретного сообщения
-                let raw = await send("ATMA", 300); // Слушаем 0.3 сек
-                
-                // Если в потоке есть данные от ID 4C0 (Приборка Ford)
-                if (raw.includes("4C0")) {
-                    let pos = raw.indexOf("4C0") + 3;
-                    // Обычно 7-й или 8-й байт в этом пакете — это топливо
-                    let hexFuel = raw.substr(pos + 12, 2); 
-                    let val = parseInt(hexFuel, 16);
-                    if (!isNaN(val) && val <= 255) {
+                let rTemp = await send("0105", 60);
+                if (rTemp.includes("4105")) {
+                    document.getElementById('temp').innerText = (parseInt(rTemp.substr(rTemp.indexOf("4105") + 4, 2), 16) - 40) + "°C";
+                }
+
+                // 2. БЕНЗИН (Раз в 30 секунд, чтобы не вешать систему)
+                if (cycle % 30 === 0) {
+                    await send("ATSH720", 30);
+                    let res = await send("012F", 150);
+                    if (res.includes("412F")) {
+                        let val = parseInt(res.substr(res.indexOf("412F") + 4, 2), 16);
                         document.getElementById('fuel').innerText = Math.round(val * 45 / 255);
                     }
                 }
-                
-                // Сброс монитора для следующего цикла
-                await device.transferOut(2, new TextEncoder().encode("\r"));
+
+                cycle++;
                 await sleep(50);
             }
         }
