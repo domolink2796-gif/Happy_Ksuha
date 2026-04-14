@@ -44,7 +44,7 @@
         .grid {
             display: grid;
             grid-template-columns: 1fr 1fr;
-            grid-template-rows: auto auto auto auto; /* Добавил строку для новых карточек */
+            grid-template-rows: auto auto auto auto;
             flex-grow: 1;
             padding: 10px;
             gap: 10px;
@@ -65,9 +65,8 @@
         .unit { font-size: 16px; color: var(--text-dim); }
         #status { color: var(--text-warn); font-size: 14px; font-weight: bold; }
         
-        /* Добавленный блок логов */
         #logConsole {
-            height: 120px;
+            height: 130px;
             background: #050505;
             color: #888;
             font-size: 11px;
@@ -102,6 +101,7 @@
         <div class="value" id="tempVal">--</div>
         <div class="unit">°C</div>
     </div>
+
     <div class="card">
         <div class="title">Скорость</div>
         <div class="value" style="color: var(--text-main);" id="speedVal">0</div>
@@ -124,7 +124,7 @@
         <div class="title">Суточный пробег</div>
         <div class="value" style="font-size: 6vw;" id="tripVal">0.0</div>
         <div class="unit">КМ</div>
-        <button id="resetTripBtn" style="margin-top: 5px; padding: 5px 10px; font-size: 12px; border: 1px solid var(--text-dim); background: transparent;">СБРОС</button>
+        <button id="resetTripBtn" style="margin-top: 5px; padding: 5px 10px; font-size: 12px; border: 1px solid var(--text-dim); background: transparent; color: var(--text-dim); cursor: pointer;">СБРОС</button>
     </div>
 </div>
 
@@ -136,11 +136,8 @@
     const FUEL_MAGIC_NUMBER = 0.335;
 
     let device;
-    let interfaceNumber = 0;
-    let endpointIn = 0;
-    let endpointOut = 0;
-    
     let isConnected = false;
+    
     // Очередь команд: Обороты, Температура, Скорость, MAF, Топливо, OBD Пробег, Ford Пробег
     let commandQueue = ['010C', '0105', '010D', '0110', '012F', '0131', '22DD01']; 
     let cmdIndex = 0;
@@ -154,24 +151,27 @@
         status: document.getElementById('status'),
         connectBtn: document.getElementById('connectBtn'),
         fuel: document.getElementById('fuelVal'),
-        rpm: document.getElementById('rpmVal'),      // Добавлено
-        temp: document.getElementById('tempVal'),    // Добавлено
+        rpm: document.getElementById('rpmVal'),
+        temp: document.getElementById('tempVal'),
         speed: document.getElementById('speedVal'),
         cons: document.getElementById('consVal'),
         consUnit: document.getElementById('consUnit'),
         odo: document.getElementById('odoVal'),
         trip: document.getElementById('tripVal'),
         resetTrip: document.getElementById('resetTripBtn'),
-        log: document.getElementById('logConsole')   // Добавлено
+        log: document.getElementById('logConsole')
     };
 
-    // Функция вывода в лог
+    // Функция ожидания (Секрет стабильной работы ELS27)
+    const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
     function writeLog(msg, isRaw = false) {
         const time = new Date().toLocaleTimeString();
         const color = isRaw ? '#0f0' : '#888';
         els.log.innerHTML += `<div><span style="color:#444">[${time}]</span> <span style="color:${color}">${msg}</span></div>`;
         els.log.scrollTop = els.log.scrollHeight;
-        if (els.log.childElementCount > 50) els.log.removeChild(els.log.firstChild);
+        // Чистим лог, чтобы не перегружать память телефона
+        if (els.log.childElementCount > 60) els.log.removeChild(els.log.firstChild);
     }
 
     els.trip.innerText = tripDistance.toFixed(1);
@@ -191,36 +191,45 @@
             });
 
             await device.open();
-            
             if (device.configuration === null) await device.selectConfiguration(1);
             await device.claimInterface(0);
 
-            // Настройка чипа FTDI (Baudrate 38400)
+            // Настройка FTDI
             await device.controlTransferOut({
                 requestType: 'vendor', recipient: 'device',
                 request: 0x03, value: 0x4138, index: 0x0000 
             });
 
-            els.status.innerText = "ПОДКЛЮЧЕНО: " + device.productName;
+            els.status.innerText = "ПОДКЛЮЧЕНО: FT232R USB UART";
             els.status.style.color = "var(--text-main)";
             els.connectBtn.style.display = "none";
             isConnected = true;
 
-            writeLog("USB подключен. Настройка адаптера...");
-            startReading();
+            writeLog("USB подключен. Запуск слушателя шины...");
+            startReading(); // Сразу начинаем слушать все, что скажет адаптер
             
-            // Жесткая инициализация ELM под Ford
+            // ЖЕЛЕЗОБЕТОННАЯ ИНИЦИАЛИЗАЦИЯ ELS27
+            writeLog("Сброс адаптера (ATZ)...");
             await sendOBD("ATZ");
-            setTimeout(() => sendOBD("ATE0"), 1000); // Эхо выкл
-            setTimeout(() => sendOBD("ATH1"), 1500); // Заголовки вкл (важно для парсинга!)
-            setTimeout(() => sendOBD("ATSP6"), 2000); // Принудительно CAN 11/500
-            setTimeout(() => {
-                writeLog("Протокол установлен. Старт опроса...");
-                pollCycle();
-            }, 2500);
+            await sleep(1500); // Обязательно ждем загрузки чипа
+
+            writeLog("Отключение эхо (ATE0)...");
+            await sendOBD("ATE0");
+            await sleep(500);
+
+            writeLog("Авто-выбор протокола (ATSP0)...");
+            await sendOBD("ATSP0");
+            await sleep(500);
+
+            writeLog("Синхронизация с ЭБУ (0100)... ждем 2 сек");
+            await sendOBD("0100"); // Заставляем машину ответить и зафиксировать протокол
+            await sleep(2000); 
+
+            writeLog("Протокол установлен. Старт опроса датчиков...");
+            pollCycle();
 
         } catch (err) {
-            els.status.innerText = "ОШИБКА: " + err.message;
+            els.status.innerText = "ОШИБКА USB";
             writeLog("ОШИБКА: " + err.message);
         }
     });
@@ -238,18 +247,19 @@
                 const text = new TextDecoder().decode(result.data);
                 buffer += text;
 
+                // Символ '>' означает, что ELS27 готов принять следующую команду
                 if (buffer.includes('>')) {
                     let cleanResponse = buffer.replace('>', '').trim();
-                    if(cleanResponse.length > 2) {
-                        writeLog("> " + cleanResponse, true); // Показываем ответ в логе
+                    if(cleanResponse.length > 0) {
+                        writeLog("> " + cleanResponse, true); // Выводим ответ в зеленую консоль
                         processResponse(cleanResponse);
                     }
-                    buffer = '';
+                    buffer = ''; // Очищаем буфер после обработки
                 }
             } catch (err) {
                 isConnected = false;
                 els.status.innerText = "СВЯЗЬ ПОТЕРЯНА";
-                writeLog("СВЯЗЬ ПОТЕРЯНА");
+                writeLog("ОШИБКА ЧТЕНИЯ: Кабель отключен?");
                 break;
             }
         }
@@ -257,13 +267,20 @@
 
     function pollCycle() {
         if (!isConnected) return;
-        sendOBD(commandQueue[cmdIndex]);
+        
+        let cmd = commandQueue[cmdIndex];
+        sendOBD(cmd);
+        writeLog("Отправка: " + cmd); // Показываем, что именно ушло
+        
         cmdIndex = (cmdIndex + 1) % commandQueue.length;
-        setTimeout(pollCycle, 400); // Увеличил до 400мс для стабильности шины
+        
+        // Интервал 500мс, чтобы шина Форда успевала «переварить» запросы
+        setTimeout(pollCycle, 500); 
     }
 
     // --- ОБРАБОТКА ДАННЫХ ---
     function processResponse(hexStr) {
+        // Убираем все пробелы для четкого поиска (т.к. разные протоколы дают разные пробелы)
         hexStr = hexStr.replace(/\s+/g, '').toUpperCase();
         
         // Обороты (010C)
@@ -286,6 +303,7 @@
             currentSpeed = parseInt(hexStr.substring(idx, idx + 2), 16);
             els.speed.innerText = currentSpeed;
             
+            // Расчет суточного пробега
             let now = Date.now();
             let hours = (now - lastTime) / 3600000;
             tripDistance += (currentSpeed * hours);
@@ -324,7 +342,7 @@
             els.odo.innerText = parseInt(hexStr.substring(idx, idx + 4), 16);
         }
 
-        // Одометр (Ford Enhanced 22DD01) - Перекрывает стандартный, если работает
+        // Одометр (Спец-код Форда 22DD01)
         if (hexStr.includes('62DD01')) {
             let idx = hexStr.indexOf('62DD01') + 6;
             els.odo.innerText = parseInt(hexStr.substring(idx, idx + 6), 16);
