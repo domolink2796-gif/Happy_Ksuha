@@ -3,177 +3,88 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>X-CONECT: Digital Dashboard</title>
+    <title>X-CONECT: Debug Mode</title>
     <style>
         :root {
             --bg-color: #000000;
             --text-main: #00ff00;
             --text-accent: #00bfff;
             --text-warn: #ff4500;
-            --text-dim: #555555;
+            --text-dim: #444;
         }
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body { 
             background-color: var(--bg-color); 
             color: var(--text-main); 
-            font-family: 'Courier New', Courier, monospace; 
+            font-family: monospace; 
             display: flex; 
             flex-direction: column; 
-            height: 100vh; 
-            overflow: hidden;
+            height: 100vh;
         }
-        header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 10px 20px;
-            border-bottom: 2px solid var(--text-dim);
-        }
-        button {
-            background-color: #111;
-            color: var(--text-main);
-            border: 2px solid var(--text-main);
-            padding: 15px 25px;
-            font-size: 18px;
-            font-weight: bold;
-            border-radius: 10px;
-            cursor: pointer;
-            box-shadow: 0 0 15px rgba(0, 255, 0, 0.2);
-        }
-        button:active { background-color: var(--text-main); color: black; }
-        .grid {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            grid-template-rows: auto auto auto auto;
+        header { padding: 10px; border-bottom: 1px solid var(--text-dim); display: flex; justify-content: space-between; }
+        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; padding: 5px; flex-shrink: 0; }
+        .card { border: 1px solid var(--text-dim); padding: 5px; text-align: center; border-radius: 5px; }
+        .val { font-size: 24px; font-weight: bold; }
+        .label { font-size: 10px; color: var(--text-accent); }
+        
+        /* ТЕРМИНАЛ - САМОЕ ВАЖНОЕ */
+        #debugTerminal {
             flex-grow: 1;
-            padding: 10px;
-            gap: 10px;
-            overflow-y: auto;
-        }
-        .card {
-            border: 2px solid var(--text-dim);
-            border-radius: 10px;
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-            align-items: center;
-            padding: 10px;
-        }
-        .card-full { grid-column: span 2; }
-        .title { font-size: 14px; color: var(--text-accent); text-transform: uppercase; }
-        .value { font-size: 10vw; font-weight: bold; line-height: 1.1; }
-        .unit { font-size: 16px; color: var(--text-dim); }
-        #status { color: var(--text-warn); font-size: 14px; font-weight: bold; }
-        #logConsole {
-            height: 120px;
             background: #050505;
-            color: #888;
-            font-size: 10px;
-            padding: 5px;
+            color: #aaa;
+            font-size: 11px;
+            padding: 10px;
             overflow-y: auto;
-            border-top: 1px solid var(--text-dim);
+            border: 1px solid #222;
+            margin: 5px;
+            white-space: pre-wrap;
         }
+        .tx { color: #00ff00; } /* Отправка */
+        .rx { color: #ffffff; font-weight: bold; } /* Ответ */
+        .err { color: #ff4500; } /* Ошибки */
+        
+        button { background: #111; color: #0f0; border: 1px solid #0f0; padding: 10px; border-radius: 5px; }
     </style>
 </head>
 <body>
 
 <header>
-    <div id="status">USB НЕ АКТИВИРОВАН</div>
+    <div id="status">STATUS: WAIT</div>
     <button id="connectBtn">АКТИВИРОВАТЬ USB</button>
 </header>
 
 <div class="grid">
-    <div class="card card-full">
-        <div class="title">Остаток в баке (45L MAX)</div>
-        <div class="value" id="fuelVal">--</div>
-        <div class="unit">ЛИТРОВ</div>
-    </div>
-
-    <div class="card">
-        <div class="title">Обороты</div>
-        <div class="value" style="color: var(--text-main);" id="rpmVal">0</div>
-        <div class="unit">RPM</div>
-    </div>
-
-    <div class="card">
-        <div class="title">Температура</div>
-        <div class="value" id="tempVal">--</div>
-        <div class="unit">°C</div>
-    </div>
-
-    <div class="card">
-        <div class="title">Скорость</div>
-        <div class="value" style="color: var(--text-main);" id="speedVal">0</div>
-        <div class="unit">КМ/Ч</div>
-    </div>
-
-    <div class="card">
-        <div class="title">Расход</div>
-        <div class="value" id="consVal">0.0</div>
-        <div class="unit" id="consUnit">Л / Ч</div>
-    </div>
-
-    <div class="card">
-        <div class="title">Пробег (ЭБУ)</div>
-        <div class="value" style="font-size: 6vw;" id="odoVal">------</div>
-        <div class="unit">КМ</div>
-    </div>
-
-    <div class="card card-full">
-        <div class="title">Суточный пробег</div>
-        <div class="value" style="font-size: 6vw;" id="tripVal">0.0</div>
-        <div class="unit">КМ</div>
-        <button id="resetTripBtn" style="margin-top: 5px; padding: 5px 10px; font-size: 12px;">СБРОС ПРОБЕГА</button>
-    </div>
+    <div class="card"><div class="label">RPM</div><div class="val" id="rpmVal">0</div></div>
+    <div class="card"><div class="label">SPEED</div><div class="val" id="speedVal">0</div></div>
+    <div class="card"><div class="label">TEMP</div><div class="val" id="tempVal">--</div></div>
+    <div class="card"><div class="label">FUEL</div><div class="val" id="fuelVal">--</div></div>
 </div>
 
-<div id="logConsole">Ожидание инициализации...</div>
+<div id="debugTerminal">Ожидание подключения...</div>
 
 <script>
-    const TANK_VOLUME = 45.0;
-    const FUEL_MAGIC_NUMBER = 0.335;
-
     let device;
     let isConnected = false;
-    // Очередь: RPM, Скорость, Температура, Расход, Бак, Пробег
-    let commandQueue = ['010C', '010D', '0105', '0110', '012F', '0131']; 
-    let cmdIndex = 0;
     let buffer = '';
-    
-    let currentSpeed = 0;
-    let lastTime = Date.now();
-    let tripDistance = parseFloat(localStorage.getItem('tripDistance')) || 0.0;
+    let commandQueue = ['010C', '010D', '0105', '012F'];
+    let cmdIdx = 0;
 
-    const els = {
-        status: document.getElementById('status'),
-        connectBtn: document.getElementById('connectBtn'),
-        fuel: document.getElementById('fuelVal'),
-        rpm: document.getElementById('rpmVal'),
-        temp: document.getElementById('tempVal'),
-        speed: document.getElementById('speedVal'),
-        cons: document.getElementById('consVal'),
-        consUnit: document.getElementById('consUnit'),
-        odo: document.getElementById('odoVal'),
-        trip: document.getElementById('tripVal'),
-        resetTrip: document.getElementById('resetTripBtn'),
-        log: document.getElementById('logConsole')
-    };
+    const term = document.getElementById('debugTerminal');
+    const statusEl = document.getElementById('status');
 
-    function writeLog(msg) {
-        const time = new Date().toLocaleTimeString();
-        els.log.innerHTML += `<div>[${time}] ${msg}</div>`;
-        els.log.scrollTop = els.log.scrollHeight;
+    function log(msg, type = '') {
+        const time = new Date().toLocaleTimeString().split(' ')[0];
+        const span = document.createElement('div');
+        span.className = type;
+        span.innerText = `[${time}] ${msg}`;
+        term.appendChild(span);
+        term.scrollTop = term.scrollHeight;
+        
+        // Ограничиваем лог, чтобы не тормозил
+        if (term.childNodes.length > 100) term.removeChild(term.firstChild);
     }
 
-    els.trip.innerText = tripDistance.toFixed(1);
-
-    els.resetTrip.addEventListener('click', () => {
-        tripDistance = 0.0;
-        localStorage.setItem('tripDistance', tripDistance);
-        els.trip.innerText = '0.0';
-    });
-
-    els.connectBtn.addEventListener('click', async () => {
+    document.getElementById('connectBtn').addEventListener('click', async () => {
         try {
             device = await navigator.usb.requestDevice({ 
                 filters: [{ vendorId: 0x0403, productId: 0x6001 }] 
@@ -189,32 +100,31 @@
                 request: 0x03, value: 0x4138, index: 0x0000 
             });
 
-            els.status.innerText = "ПОДКЛЮЧЕНО";
-            els.status.style.color = "var(--text-main)";
-            els.connectBtn.style.display = "none";
+            statusEl.innerText = "STATUS: CONNECTED";
             isConnected = true;
+            document.getElementById('connectBtn').style.display = "none";
 
+            log("USB подключен. Инициализация ELM...", "tx");
             startReading();
             
-            writeLog("Сброс адаптера...");
-            await sendOBD("ATZ");
-            setTimeout(async () => {
-                await sendOBD("ATE0"); // Эхо выкл
-                await sendOBD("ATSP6"); // Протокол Ford CAN
-                await sendOBD("ATST64"); // Таймаут ответа
-                writeLog("Протокол Ford CAN установлен. Опрос...");
-                setTimeout(pollCycle, 1000);
-            }, 1000);
+            // Последовательный запуск
+            await sendOBD("ATZ"); // Сброс
+            setTimeout(() => sendOBD("ATE0"), 1000); // Выкл эхо
+            setTimeout(() => sendOBD("ATSP6"), 2000); // Протокол ISO 15765-4 (CAN)
+            setTimeout(poll, 3000);
 
         } catch (err) {
-            writeLog("Ошибка: " + err.message);
+            log("ОШИБКА USB: " + err.message, "err");
         }
     });
 
     async function sendOBD(cmd) {
         if (!isConnected) return;
-        const data = new TextEncoder().encode(cmd + '\r');
-        await device.transferOut(2, data);
+        try {
+            log("> " + cmd, "tx");
+            const data = new TextEncoder().encode(cmd + '\r');
+            await device.transferOut(2, data);
+        } catch (e) { log("Ошибка отправки: " + e.message, "err"); }
     }
 
     async function startReading() {
@@ -225,90 +135,45 @@
                 buffer += text;
 
                 if (buffer.includes('>')) {
-                    let response = buffer.replace('>', '').trim();
-                    processResponse(response);
+                    const rawResponse = buffer.replace('>', '').trim();
+                    log("< " + rawResponse, "rx");
+                    parseData(rawResponse);
                     buffer = '';
                 }
             } catch (err) {
+                log("Связь потеряна: " + err.message, "err");
                 isConnected = false;
-                els.status.innerText = "СВЯЗЬ ПОТЕРЯНА";
                 break;
             }
         }
     }
 
-    function pollCycle() {
+    function poll() {
         if (!isConnected) return;
-        sendOBD(commandQueue[cmdIndex]);
-        cmdIndex = (cmdIndex + 1) % commandQueue.length;
-        // 600мс для стабильности Ford
-        setTimeout(pollCycle, 600); 
+        sendOBD(commandQueue[cmdIdx]);
+        cmdIdx = (cmdIdx + 1) % commandQueue.length;
+        // Опрос раз в 800мс, чтобы не вешать адаптер
+        setTimeout(poll, 800);
     }
 
-    function processResponse(hexStr) {
-        hexStr = hexStr.replace(/\s+/g, '').toUpperCase();
+    function parseData(hex) {
+        const clean = hex.replace(/\s+/g, '');
         
-        // Обороты (41 0C)
-        if (hexStr.includes('410C')) {
-            let idx = hexStr.indexOf('410C') + 4;
-            let a = parseInt(hexStr.substring(idx, idx + 2), 16);
-            let b = parseInt(hexStr.substring(idx + 2, idx + 4), 16);
-            if (!isNaN(a) && !isNaN(b)) els.rpm.innerText = Math.round(((a * 256) + b) / 4);
+        // RPM
+        if (clean.includes('410C')) {
+            let i = clean.indexOf('410C') + 4;
+            let val = (parseInt(clean.substring(i, i+2), 16) * 256 + parseInt(clean.substring(i+2, i+4), 16)) / 4;
+            document.getElementById('rpmVal').innerText = Math.round(val);
         }
-
-        // Температура (41 05)
-        if (hexStr.includes('4105')) {
-            let idx = hexStr.indexOf('4105') + 4;
-            let val = parseInt(hexStr.substring(idx, idx + 2), 16);
-            if (!isNaN(val)) els.temp.innerText = val - 40;
+        // SPEED
+        if (clean.includes('410D')) {
+            let i = clean.indexOf('410D') + 4;
+            document.getElementById('speedVal').innerText = parseInt(clean.substring(i, i+2), 16);
         }
-
-        // Скорость (41 0D)
-        if (hexStr.includes('410D')) {
-            let idx = hexStr.indexOf('410D') + 4;
-            currentSpeed = parseInt(hexStr.substring(idx, idx + 2), 16);
-            if (!isNaN(currentSpeed)) {
-                els.speed.innerText = currentSpeed;
-                let now = Date.now();
-                let hours = (now - lastTime) / 3600000;
-                tripDistance += (currentSpeed * hours);
-                localStorage.setItem('tripDistance', tripDistance);
-                els.trip.innerText = tripDistance.toFixed(1);
-                lastTime = now;
-            }
-        }
-        
-        // Расход (41 10 - MAF)
-        if (hexStr.includes('4110')) {
-            let idx = hexStr.indexOf('4110') + 4;
-            let maf = (parseInt(hexStr.substring(idx, idx + 4), 16)) / 100;
-            if (!isNaN(maf)) {
-                let lph = maf * FUEL_MAGIC_NUMBER;
-                if (currentSpeed > 5) {
-                    els.cons.innerText = ((lph / currentSpeed) * 100).toFixed(1);
-                    els.consUnit.innerText = "Л/100КМ";
-                } else {
-                    els.cons.innerText = lph.toFixed(1);
-                    els.consUnit.innerText = "Л/Ч";
-                }
-            }
-        }
-
-        // Бак (41 2F)
-        if (hexStr.includes('412F')) {
-            let idx = hexStr.indexOf('412F') + 4;
-            let level = parseInt(hexStr.substring(idx, idx + 2), 16);
-            if (!isNaN(level)) {
-                let liters = TANK_VOLUME * (level / 255);
-                els.fuel.innerText = liters.toFixed(1);
-            }
-        }
-
-        // Одометр (41 31)
-        if (hexStr.includes('4131')) {
-            let idx = hexStr.indexOf('4131') + 4;
-            let odo = parseInt(hexStr.substring(idx, idx + 4), 16);
-            if (!isNaN(odo)) els.odo.innerText = odo;
+        // TEMP
+        if (clean.includes('4105')) {
+            let i = clean.indexOf('4105') + 4;
+            document.getElementById('tempVal').innerText = parseInt(clean.substring(i, i+2), 16) - 40;
         }
     }
 </script>
