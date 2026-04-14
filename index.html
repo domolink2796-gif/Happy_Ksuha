@@ -3,34 +3,34 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>X-CONECT: RE-STYLE SNIFFER</title>
+    <title>X-CONECT: FUEL FIX 2008</title>
     <style>
         body { background: #000; color: #0f0; font-family: monospace; margin: 0; padding: 10px; text-align: center; }
-        .fuel-box { border: 4px solid #ff0055; padding: 25px; border-radius: 20px; background: #050505; margin: 15px 0; box-shadow: 0 0 20px rgba(255, 0, 85, 0.2); }
-        .fuel-val { font-size: 6em; display: block; color: #ff0055; font-weight: bold; }
+        .fuel-box { border: 4px solid #00bcff; padding: 25px; border-radius: 20px; background: #050505; margin: 15px 0; }
+        .fuel-val { font-size: 6em; display: block; color: #00bcff; font-weight: bold; }
         .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
         .card { border: 1px solid #222; padding: 12px; border-radius: 10px; background: #080808; }
-        .val { font-size: 1.8em; display: block; color: #0f0; }
+        .val { font-size: 2em; display: block; color: #0f0; }
         #log { height: 100px; overflow-y: auto; border: 1px solid #111; margin-top: 15px; font-size: 10px; text-align: left; padding: 8px; color: #444; }
-        button { background: #ff0055; border: none; color: #fff; padding: 20px; font-size: 1.2em; border-radius: 12px; cursor: pointer; width: 100%; font-weight: bold; }
+        button { background: #00bcff; border: none; color: #000; padding: 20px; font-size: 1.1em; border-radius: 12px; cursor: pointer; width: 100%; font-weight: bold; }
     </style>
 </head>
 <body>
 
-    <button id="connectBtn">АКТИВИРОВАТЬ ПЕРЕХВАТ 0x405</button>
+    <button id="connectBtn">ЗАПУСК: ФИНАЛЬНЫЙ ТЕСТ БАКА</button>
 
     <div class="fuel-box">
-        <span style="color: #ff0055; font-size: 0.9em;">БЕНЗИН (ПРЯМОЙ ПЕРЕХВАТ)</span>
+        <span style="color: #00bcff; font-size: 0.9em;">ОСТАТОК В БАКЕ (L)</span>
         <span id="fuel" class="fuel-val">--</span>
-        <span style="color: #ff0055; font-size: 1.5em;">LITERS</span>
+        <span style="color: #00bcff; font-size: 1.5em;">ЛИТРОВ</span>
     </div>
 
     <div class="grid">
-        <div class="card"><span style="color:#666; font-size:0.7em;">TEMP</span><span id="temp" class="val">--</span></div>
-        <div class="card"><span style="color:#666; font-size:0.7em;">RPM</span><span id="rpm" class="val">0</span></div>
+        <div class="card"><span id="temp" class="val">--</span><span style="color:#666; font-size:0.7em;">TEMP</span></div>
+        <div class="card"><span id="rpm" class="val">0</span><span style="color:#666; font-size:0.7em;">RPM</span></div>
     </div>
 
-    <div id="log">Ожидание пакетов шины...</div>
+    <div id="log">Лог системы...</div>
 
     <script>
         const logDiv = document.getElementById('log');
@@ -51,13 +51,12 @@
                 let divisor = Math.floor(3000000 / 38400);
                 await device.controlTransferOut({ requestType: 'vendor', recipient: 'device', request: 0x03, value: divisor, index: 0 });
 
-                log("ELS27 ГОТОВ. РЕЖИМ ПЕРЕХВАТА.");
+                log("ПОДКЛЮЧЕНО.");
                 await send("ATZ");
                 await sleep(500);
                 await send("ATE0");
-                await send("ATSP6");
-                await send("ATH1"); // ВКЛЮЧАЕМ ЗАГОЛОВКИ (ОБЯЗАТЕЛЬНО!)
-                await send("ATCAF0"); // Выключаем автоформатирование
+                await send("ATSP6"); // Протокол ISO 15765-4 CAN (11 bit ID, 500 Kbaud)
+                await send("ATH0"); 
 
                 isRunning = true;
                 mainLoop();
@@ -69,7 +68,7 @@
                 await device.transferOut(2, new TextEncoder().encode(cmd + "\r"));
                 await sleep(wait);
                 let res = await device.transferIn(1, 128);
-                return new TextDecoder().decode(res.data).replace(/\s/g, '');
+                return new TextDecoder().decode(res.data).replace(/\s/g, '').replace(/>/g, '');
             } catch (e) { return ""; }
         }
 
@@ -78,42 +77,47 @@
         async function mainLoop() {
             let cycle = 0;
             while (isRunning) {
-                // 1. ОБОРОТЫ И ТЕМПЕРАТУРА
-                await send("ATSH7E0", 20);
+                // 1. ОБОРОТЫ И ТЕМПЕРАТУРА (Работают всегда хорошо)
+                await send("ATSH7E0", 20); // Заголовок для двигателя
+                
                 let rRPM = await send("010C", 60);
                 if (rRPM.includes("410C")) {
                     let idx = rRPM.indexOf("410C") + 4;
                     document.getElementById('rpm').innerText = Math.round(((parseInt(rRPM.substr(idx, 2), 16) * 256) + parseInt(rRPM.substr(idx + 2, 2), 16)) / 4);
                 }
 
-                // 2. БЕНЗИН ЧЕРЕЗ МОНИТОРИНГ ШИНЫ (СНИФФЕР)
-                if (cycle % 4 === 0) {
-                    log("СКАНИРУЮ ПОТОК...");
-                    // Слушаем только сообщения от ID 405 (Fuel Status)
-                    await send("ATCF405", 20); // Фильтр на 405
-                    await send("ATCM7FF", 20); // Маска
+                let rTemp = await send("0105", 60);
+                if (rTemp.includes("4105")) {
+                    document.getElementById('temp').innerText = (parseInt(rTemp.substr(rTemp.indexOf("4105") + 4, 2), 16) - 40) + "°C";
+                }
+
+                // 2. БЕНЗИН (Метод для 2008 Рестайл)
+                if (cycle % 10 === 0) {
+                    // Обращаемся к приборной панели
+                    await send("ATSH720", 30);
                     
-                    let monitor = await send("ATMA", 300); // Слушаем 0.3 сек
+                    // Самый вероятный PID для рестайла - Fuel Tank Level (Percent)
+                    let res = await send("220461", 150);
                     
-                    if (monitor.includes("405")) {
-                        log("ПАКЕТ 405 ПОЙМАН!");
-                        // Пакет выглядит как: 405 08 XX YY ... где XX или YY — топливо
-                        let pos = monitor.indexOf("405") + 5; 
-                        let fuelHex = monitor.substr(pos, 2);
-                        let val = parseInt(fuelHex, 16);
-                        
-                        // Пересчет: обычно 0-255 это пустой-полный (45л)
+                    if (res.includes("620461")) {
+                        let hex = res.substr(res.indexOf("620461") + 6, 2);
+                        let val = parseInt(hex, 16);
+                        // На рестайле 2008 часто 0-255 это проценты (2.55 = 1%)
+                        // Бак 45 литров. Расчет: (val / 255) * 45
                         let liters = Math.round(val * 45 / 255);
-                        if (liters >= 0 && liters <= 50) {
-                            document.getElementById('fuel').innerText = liters;
+                        document.getElementById('fuel').innerText = liters;
+                    } else {
+                        // Запасной запрос для 2008 года
+                        let res2 = await send("22042C", 150);
+                        if (res2.includes("62042C")) {
+                            let hex2 = res2.substr(res2.indexOf("62042C") + 6, 2);
+                            document.getElementById('fuel').innerText = Math.round(parseInt(hex2, 16) * 45 / 255);
                         }
                     }
-                    
-                    await send("ATAR", 20); // Сброс фильтров для возврата к RPM
                 }
 
                 cycle++;
-                await sleep(20);
+                await sleep(30);
             }
         }
     </script>
