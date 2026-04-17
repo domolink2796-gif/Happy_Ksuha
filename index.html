@@ -1,67 +1,139 @@
 <!DOCTYPE html>
-<html>
+<html lang="ru">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>X-CONECT: DRIVE SCAN</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>X-CONECT: ADMIN PANEL</title>
     <style>
-        body { background: #000; color: #00ff41; font-family: monospace; margin: 0; padding: 10px; text-align: center; }
-        .box { border: 4px solid #00ff41; padding: 25px; border-radius: 20px; background: #050505; margin: 15px 0; }
-        #log { height: 250px; overflow-y: auto; border: 1px solid #222; margin-top: 15px; font-size: 12px; text-align: left; padding: 10px; color: #0f0; background: #000; }
-        button { background: #00ff41; border: none; color: #000; padding: 20px; font-size: 1.1em; border-radius: 12px; cursor: pointer; width: 100%; font-weight: bold; text-transform: uppercase; }
-        .status { font-size: 1.5em; color: #fff; margin-bottom: 10px; display: block; }
+        :root { --gold: #ff9800; --dark: #0a0a0a; --gray: #1a1a1a; }
+        body { background: var(--dark); color: white; font-family: 'Segoe UI', sans-serif; margin: 0; padding: 20px; }
+        .header { border-bottom: 2px solid var(--gold); padding-bottom: 10px; margin-bottom: 20px; }
+        .card { background: var(--gray); border-radius: 10px; padding: 15px; margin-bottom: 15px; border-left: 4px solid var(--gold); }
+        .status-blocked { color: #f44336; font-weight: bold; }
+        .status-active { color: #4caf50; font-weight: bold; }
+        button { background: var(--gold); border: none; padding: 10px; color: black; border-radius: 5px; font-weight: bold; cursor: pointer; margin-right: 5px; }
+        button.danger { background: #f44336; color: white; }
+        #auth-screen { position: fixed; top:0; left:0; width:100%; height:100%; background: var(--dark); display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 100; }
+        .pulse { animation: pulse 2s infinite; border: 2px solid var(--gold); border-radius: 50%; padding: 40px; }
+        @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(255, 152, 0, 0.4); } 70% { box-shadow: 0 0 0 20px rgba(255, 152, 0, 0); } 100% { box-shadow: 0 0 0 0 rgba(255, 152, 0, 0); } }
     </style>
 </head>
 <body>
 
-    <button id="connectBtn">ПОДКЛЮЧИТЬ УСТРОЙСТВО (ПОИСК)</button>
+<div id="auth-screen">
+    <div class="pulse">🛰️</div>
+    <h2 style="color: var(--gold)">TITAN GATE KEEPER</h2>
+    <p>Приложите Мастер-Ключ</p>
+</div>
 
-    <div class="box">
-        <span class="status" id="stat">ОЖИДАНИЕ</span>
-        <span id="devName" style="color: #666;">Устройство не выбрано</span>
+<div id="admin-content" style="display: none;">
+    <div class="header">
+        <h1>X-CONECT ADMIN</h1>
+        <p id="admin-id">ID: 04:77:56:4A:3E:12:90</p>
     </div>
 
-    <div id="log">Лог инициализации...</div>
+    <div class="card">
+        <h3>➕ Регистрация новой метки</h3>
+        <p>Приложите чистую NTAG215 для активации в системе</p>
+        <button onclick="scanNewTag()">СКАНИРОВАТЬ</button>
+    </div>
 
-    <script>
-        const logDiv = document.getElementById('log');
-        let device;
+    <div id="users-list">
+        <h3>👥 Список пользователей</h3>
+        </div>
+</div>
 
-        function log(msg) {
-            logDiv.innerHTML += `> ${msg}<br>`;
-            logDiv.scrollTop = logDiv.scrollHeight;
-        }
+<script>
+    const MASTER_KEY = '04:77:56:4A:3E:12:90'; //
+    let adminAuthorized = false;
 
-        document.getElementById('connectBtn').addEventListener('click', async () => {
-            log("Запуск поиска всех USB устройств...");
+    // 1. Вход по NFC
+    async function initAuth() {
+        if ('NDEFReader' in window) {
             try {
-                // В автомобильном файле стоял фильтр 0x0403
-                // Здесь мы убираем фильтры полностью, чтобы увидеть диск
-                device = await navigator.usb.requestDevice({ filters: [] });
-                
-                document.getElementById('devName').innerText = device.productName || "Unknown Device";
-                document.getElementById('stat').innerText = "НАЙДЕНО";
-                document.getElementById('stat').style.color = "#00ff41";
+                const ndef = new NDEFReader();
+                await ndef.scan();
+                ndef.onreading = event => {
+                    const uid = event.serialNumber;
+                    if (uid === MASTER_KEY) {
+                        document.getElementById('auth-screen').style.display = 'none';
+                        document.getElementById('admin-content').style.display = 'block';
+                        loadUsers();
+                        if(navigator.vibrate) navigator.vibrate(200);
+                    } else {
+                        alert("ОШИБКА: Ключ не опознан.");
+                    }
+                };
+            } catch (e) { alert("Ошибка NFC: " + e); }
+        }
+    }
 
-                log("Попытка открытия сессии...");
-                await device.open();
-                
-                log("Выбор конфигурации...");
-                await device.selectConfiguration(1);
-                
-                log("Захват интерфейса...");
-                await device.claimInterface(0);
-
-                log("УСПЕХ: Прямой доступ к железу диска получен.");
-                log("Vendor ID: " + device.vendorId);
-                log("Product ID: " + device.productId);
-                
-            } catch (err) { 
-                log("ОШИБКА: " + err); 
-                document.getElementById('stat').innerText = "ОШИБКА";
-                document.getElementById('stat').style.color = "#ff0000";
-            }
+    // 2. Загрузка базы
+    async function loadUsers() {
+        const res = await fetch('/x-api/admin/users', { headers: { 'x-admin-key': MASTER_KEY } });
+        const users = await res.json();
+        const container = document.getElementById('users-list');
+        container.innerHTML = '<h3>👥 Список пользователей</h3>';
+        
+        users.forEach(u => {
+            if(u.nfc_uid === MASTER_KEY) return;
+            const div = document.createElement('div');
+            div.className = 'card';
+            div.innerHTML = `
+                <p><b>Ник:</b> ${u.nickname || 'Не зарегистрирован'}</p>
+                <p><b>UID:</b> ${u.nfc_uid}</p>
+                <p><b>Статус:</b> <span class="${u.is_blocked ? 'status-blocked' : 'status-active'}">${u.is_blocked ? 'ЗАБЛОКИРОВАН' : 'АКТИВЕН'}</span></p>
+                <p><small>Device: ${u.device_id || 'Не привязано'}</small></p>
+                <button onclick="toggleBlock('${u.nfc_uid}', ${u.is_blocked ? 0 : 1})">${u.is_blocked ? 'РАЗБЛОКИРОВАТЬ' : 'ЗАБЛОКИРОВАТЬ'}</button>
+                <button class="danger" onclick="resetDevice('${u.nfc_uid}')">СБРОС ТЕЛЕФОНА</button>
+            `;
+            container.appendChild(div);
         });
-    </script>
+    }
+
+    // 3. Сканирование новых карт
+    async function scanNewTag() {
+        alert("Приложите новую метку...");
+        const ndef = new NDEFReader();
+        await ndef.scan();
+        ndef.onreading = async event => {
+            const newUid = event.serialNumber;
+            const res = await fetch('/x-api/admin/whitelist', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ uid: newUid, auth: MASTER_KEY })
+            });
+            const data = await res.json();
+            if (data.success) {
+                alert("Метка " + newUid + " добавлена в белый список!");
+                loadUsers();
+            } else {
+                alert("Ошибка: " + data.message);
+            }
+        };
+    }
+
+    async function toggleBlock(uid, status) {
+        await fetch('/x-api/admin/toggle-block', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ uid, status, auth: MASTER_KEY })
+        });
+        loadUsers();
+    }
+
+    async function resetDevice(uid) {
+        if(confirm("Сбросить привязку телефона для этой метки?")) {
+            await fetch('/x-api/admin/reset-device', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ uid, auth: MASTER_KEY })
+            });
+            loadUsers();
+        }
+    }
+
+    window.onload = initAuth;
+</script>
 </body>
 </html>
