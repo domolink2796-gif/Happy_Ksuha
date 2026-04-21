@@ -112,15 +112,19 @@
         }
         
         .time-estimate { font-size: 10px; color: var(--gold); font-weight: 800; text-align: center; margin-bottom: 5px; }
-        .settings-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+        
+        /* ДОБАВЛЕНО: Сетка теперь на 3 колонки, чтобы вместить режим поэзии */
+        .settings-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
 
         .speed-panel {
-            display: flex; justify-content: space-between; background: rgba(0,0,0,0.4);
-            border-radius: 12px; padding: 5px; border: 1px solid #222;
+            display: flex; justify-content: space-between; flex-direction: column; background: rgba(0,0,0,0.4);
+            border-radius: 12px; padding: 4px; border: 1px solid #222;
         }
+        .speed-panel-row { display: flex; width: 100%; }
+
         .speed-btn {
             flex: 1; background: transparent; color: #666; border: none; padding: 8px 0;
-            font-size: 12px; font-weight: 800; border-radius: 8px; transition: 0.3s;
+            font-size: 11px; font-weight: 800; border-radius: 8px; transition: 0.3s;
         }
         .speed-btn.active { background: rgba(255, 106, 0, 0.15); color: var(--gold); }
 
@@ -177,14 +181,25 @@
 
             <div class="settings-grid">
                 <div class="speed-panel">
-                    <button class="speed-btn" data-speed="0.8">0.8x</button>
-                    <button class="speed-btn active" data-speed="1.0">1.0x</button>
-                    <button class="speed-btn" data-speed="1.2">1.2x</button>
+                    <div class="file-name-label" style="margin: 0; color:#444;">СКОРОСТЬ</div>
+                    <div class="speed-panel-row">
+                        <button class="speed-btn" data-speed="0.8">0.8x</button>
+                        <button class="speed-btn active" data-speed="1.0">1.0x</button>
+                    </div>
                 </div>
                 <div class="speed-panel">
-                    <button class="speed-btn pitch-btn" data-pitch="0.7">БАС</button>
-                    <button class="speed-btn pitch-btn active" data-pitch="1.0">НОРМ</button>
-                    <button class="speed-btn pitch-btn" data-pitch="1.4">ВЫС</button>
+                    <div class="file-name-label" style="margin: 0; color:#444;">ТЕМБР</div>
+                    <div class="speed-panel-row">
+                        <button class="speed-btn pitch-btn" data-pitch="0.7">БАС</button>
+                        <button class="speed-btn pitch-btn active" data-pitch="1.0">НОРМ</button>
+                    </div>
+                </div>
+                <div class="speed-panel">
+                    <div class="file-name-label" style="margin: 0; color:#444;">РЕЖИМ</div>
+                    <div class="speed-panel-row">
+                        <button class="speed-btn mode-btn active" data-mode="prose">ПРОЗА</button>
+                        <button class="speed-btn mode-btn" data-mode="poetry">🎭 СТИХИ</button>
+                    </div>
                 </div>
             </div>
 
@@ -192,7 +207,7 @@
             <button class="btn btn-pause" id="pauseBtn">⏸ ПАУЗА / ПРОДОЛЖИТЬ</button>
             <button class="btn btn-stop" id="stopBtn">⏹ СТОП</button>
 
-            <button class="btn btn-mic" id="micBtn">🎤 ГОЛОСОВОЙ КОМАНДИР: ПРОБЕРКА...</button>
+            <button class="btn btn-mic" id="micBtn">🎤 ГОЛОСОВОЙ КОМАНДИР: ПРОВЕРКА...</button>
 
             <div class="status-bar" id="statusLabel">
                 <span id="statusText">СИСТЕМА В РЕЖИМЕ ОЖИДАНИЯ</span>
@@ -208,6 +223,7 @@
         let isCustomPaused = false; 
         let currentSpeed = 1.0;
         let currentPitch = 1.0;
+        let currentMode = 'prose'; // ДОБАВЛЕНО: Для стихов
         
         window.titanVoiceMsg = null;
         
@@ -220,7 +236,9 @@
         let currentChunkIndex = 0;
         let isTextSelected = false;
         
-        // Переменная для защиты от двойного нажатия
+        // ДОБАВЛЕНО: Смещение для точного поиска выделения
+        let chunkSearchOffset = 0; 
+        
         let actionLocked = false;
 
         pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.11.338/pdf.worker.min.js';
@@ -249,7 +267,6 @@
                 fileNameLabel.innerText = "Восстановлено из памяти";
                 updateTimeEstimate();
             }
-            // Проверка поддержки микрофона при старте
             checkMicSupport();
         };
 
@@ -277,17 +294,14 @@
             updateStatus("🗑️ ПАМЯТЬ ОЧИЩЕНА", "#888", false, false);
         };
 
-        const speedBtns = document.querySelectorAll('.speed-btn:not(.pitch-btn)');
+        const speedBtns = document.querySelectorAll('.speed-btn:not(.pitch-btn):not(.mode-btn)');
         speedBtns.forEach(btn => {
             btn.onclick = () => {
                 speedBtns.forEach(b => b.classList.remove('active'));
                 btn.classList.add('active');
                 currentSpeed = parseFloat(btn.getAttribute('data-speed'));
                 updateTimeEstimate();
-                if (synth.speaking && !isCustomPaused) {
-                    synth.cancel();
-                    playNextChunk(); 
-                }
+                if (synth.speaking && !isCustomPaused) { synth.cancel(); playNextChunk(); }
             };
         });
 
@@ -297,9 +311,21 @@
                 pitchBtns.forEach(b => b.classList.remove('active'));
                 btn.classList.add('active');
                 currentPitch = parseFloat(btn.getAttribute('data-pitch'));
+                if (synth.speaking && !isCustomPaused) { synth.cancel(); playNextChunk(); }
+            };
+        });
+
+        // ДОБАВЛЕНО: Кнопки переключения режимов
+        const modeBtns = document.querySelectorAll('.mode-btn');
+        modeBtns.forEach(btn => {
+            btn.onclick = () => {
+                modeBtns.forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                currentMode = btn.getAttribute('data-mode');
+                
                 if (synth.speaking && !isCustomPaused) {
-                    synth.cancel();
-                    playNextChunk(); 
+                    document.getElementById('stopBtn').click();
+                    setTimeout(() => { document.getElementById('startBtn').click(); }, 300);
                 }
             };
         });
@@ -404,15 +430,18 @@
 
             try {
                 const fullText = textDisplay.value;
-                const startIndex = fullText.indexOf(chunkText);
+                
+                // ДОБАВЛЕНО: Исправление бага с перепрыгиванием выделения (ищем только ВПЕРЕД)
+                const startIndex = fullText.indexOf(chunkText, chunkSearchOffset);
+                
                 if (startIndex !== -1) {
+                    chunkSearchOffset = startIndex + chunkText.length; // Сдвигаем трекер для следующего куска
                     textDisplay.setAttribute('readonly', 'true'); 
                     textDisplay.focus(); 
                     textDisplay.setSelectionRange(startIndex, startIndex + chunkText.length); 
                     
-                    // ДОБАВЛЕНО: Улучшенный Суфлер (Скролл за текстом)
                     const scrollPos = (textDisplay.scrollHeight * (startIndex / fullText.length));
-                    textDisplay.scrollTop = scrollPos - 40; // Чуть выше центра
+                    textDisplay.scrollTop = scrollPos - 40; 
                 }
             } catch(e) {}
 
@@ -435,7 +464,12 @@
             window.titanVoiceMsg.onend = () => {
                 if (!isCustomPaused) {
                     currentChunkIndex++; 
-                    playNextChunk(); 
+                    // ДОБАВЛЕНО: Если режим СТИХИ, делаем глубокую паузу
+                    if (currentMode === 'poetry') {
+                        setTimeout(() => { playNextChunk(); }, 600); 
+                    } else {
+                        playNextChunk(); 
+                    }
                 }
             };
 
@@ -449,7 +483,6 @@
             synth.speak(window.titanVoiceMsg);
             updateStatus(isTextSelected ? "🔊 ЧТЕНИЕ ВЫДЕЛЕНИЯ" : "🔊 ВОСПРОИЗВЕДЕНИЕ", "var(--gold)", true, true);
             
-            // Разблокируем кнопки через полсекунды после старта
             setTimeout(() => { actionLocked = false; }, 500);
         }
 
@@ -458,20 +491,31 @@
             actionLocked = true;
             
             const fullText = textDisplay.value;
-            const selectedText = textDisplay.value.substring(textDisplay.selectionStart, textDisplay.selectionEnd);
+            const selStart = textDisplay.selectionStart;
+            const selEnd = textDisplay.selectionEnd;
+            const selectedText = fullText.substring(selStart, selEnd);
+            
             isTextSelected = selectedText.length > 0;
             currentReadingText = isTextSelected ? selectedText : fullText;
             
             if (!currentReadingText) { actionLocked = false; return; }
 
+            // ДОБАВЛЕНО: Точная точка старта для выделения
+            chunkSearchOffset = isTextSelected ? selStart : 0; 
+            
             lastWordIndex = 0; 
             currentRelativeIndex = 0;
             isCustomPaused = false;
             synth.cancel();
 
-            titanChunks = currentReadingText.match(/[^.!?\n]+[.!?\n]+/g) || [currentReadingText];
+            // ДОБАВЛЕНО: Нарезчик подстраивается под режим (Проза или Стихи)
+            if (currentMode === 'poetry') {
+                titanChunks = currentReadingText.split(/\n+/).filter(line => line.trim().length > 0);
+            } else {
+                titanChunks = currentReadingText.match(/[^.!?\n]+[.!?\n]+/g) || [currentReadingText];
+            }
+            
             currentChunkIndex = 0;
-
             playNextChunk(); 
         };
 
@@ -489,7 +533,7 @@
                 isCustomPaused = false;
                 playNextChunk(); 
             } else {
-                actionLocked = false; // Если нажали случайно без звука
+                actionLocked = false; 
             }
         };
 
@@ -500,6 +544,7 @@
             titanChunks = [];
             lastWordIndex = 0; 
             currentRelativeIndex = 0;
+            chunkSearchOffset = 0;
             clearInterval(heartbeatTimer);
             textDisplay.removeAttribute('readonly'); 
             updateStatus("⏹ СИСТЕМА ОСТАНОВЛЕНА", "#666", false, false);
@@ -508,7 +553,7 @@
 
         window.speechSynthesis.onvoiceschanged = () => { synth.getVoices(); };
 
-        // --- УМНАЯ ДИАГНОСТИКА ГОЛОСА ---
+        // ДОБАВЛЕНО: УСОВЕРШЕНСТВОВАННАЯ ЛОГИКА МИКРОФОНА
         const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
         let isMicActive = false;
         let recognizer = null;
@@ -520,7 +565,6 @@
                 return;
             }
             
-            // Если файл запущен локально (file://) - блокируем заранее
             if (window.location.protocol === 'file:') {
                 micBtn.innerText = "🎤 НУЖЕН СЕРВЕР (HTTPS) ДЛЯ ГОЛОСА";
                 micBtn.classList.add('disabled');
@@ -536,28 +580,43 @@
             recognizer.continuous = true; 
             
             recognizer.onresult = (e) => {
-                const cmd = e.results[e.results.length - 1][0].transcript.toLowerCase();
+                const cmd = e.results[e.results.length - 1][0].transcript.toLowerCase().trim();
+                console.log("Услышал команду: ", cmd);
                 
-                if (cmd.includes('титан') || cmd.includes('система')) {
-                    if (cmd.includes('пауза')) document.getElementById('pauseBtn').click();
-                    else if (cmd.includes('продолжи') || cmd.includes('дальше')) {
+                // ДОБАВЛЕНО: Визуально показываем, что телефон не глухой
+                micBtn.innerText = "🎤 УСЛЫШАЛ: " + cmd;
+                setTimeout(() => { 
+                    if(isMicActive && micBtn.innerText.includes("УСЛЫШАЛ")) {
+                        micBtn.innerText = "🎤 ГОЛОС: АКТИВЕН (СКАЖИ 'ТИТАН, ПАУЗА')";
+                    }
+                }, 2000);
+                
+                // ДОБАВЛЕНО: Защита от ошибок нейросети (учитываем, как телефон может расслышать слово Титан)
+                const isWakeWord = /титан|titan|система|читан|тетан|братан|цветан/.test(cmd);
+                
+                if (isWakeWord || cmd.includes('пауза') || cmd.includes('стоп')) {
+                    if (cmd.includes('пауза') || cmd.includes('жди')) document.getElementById('pauseBtn').click();
+                    else if (cmd.includes('продолжи') || cmd.includes('дальше') || cmd.includes('погнали')) {
                         if (isCustomPaused) document.getElementById('pauseBtn').click();
                         else document.getElementById('startBtn').click();
                     }
-                    else if (cmd.includes('стоп') || cmd.includes('останови')) document.getElementById('stopBtn').click();
-                    else if (cmd.includes('читай') || cmd.includes('старт')) document.getElementById('startBtn').click();
+                    else if (cmd.includes('стоп') || cmd.includes('останови') || cmd.includes('хватит')) document.getElementById('stopBtn').click();
+                    else if (cmd.includes('читай') || cmd.includes('старт') || cmd.includes('пуск')) document.getElementById('startBtn').click();
                 }
             };
             
             recognizer.onend = () => {
                 if (isMicActive) {
-                    try { recognizer.start(); } catch(err){}
+                    // ДОБАВЛЕНО: Таймер-предохранитель от падения микрофона
+                    setTimeout(() => {
+                        try { recognizer.start(); } catch(err){}
+                    }, 300);
                 }
             };
             
             recognizer.onerror = (e) => {
                 if(e.error === 'not-allowed') {
-                    micBtn.innerText = "🎤 МИКРОФОН ЗАБЛОКИРОВАН";
+                    micBtn.innerText = "🎤 МИКРОФОН ЗАБЛОКИРОВАН В НАСТРОЙКАХ";
                     micBtn.classList.add('disabled');
                     isMicActive = false;
                 }
