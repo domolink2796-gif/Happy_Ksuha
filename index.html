@@ -2,642 +2,136 @@
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    
-    <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <meta name="theme-color" content="#ff6a00">
-    <link rel="manifest" href="data:application/manifest+json;charset=utf-8,%7B%22name%22%3A%22TITAN%20AUDIO%22%2C%22short_name%22%3A%22TITAN%22%2C%22display%22%3A%22standalone%22%2C%22background_color%22%3A%22%23050505%22%2C%22theme_color%22%3A%22%23ff6a00%22%7D">
-
-    <title>TITAN AUDIO PILOT | X-CONECT</title>
-    
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.11.338/pdf.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.4.21/mammoth.browser.min.js"></script>
-    
-    <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;800;900&display=swap" rel="stylesheet">
-
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Панель Телеметрии</title>
     <style>
-        :root { 
-            --gold: #ff6a00; 
-            --gold-dark: #e65c00;
-            --bg-dark: #050505;
-            --glass-bg: rgba(20, 20, 20, 0.7);
-            --glass-border: rgba(255, 106, 0, 0.15);
+        body {
+            background-color: #121212;
+            color: #ffffff;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
         }
-        
-        *, *::before, *::after { box-sizing: border-box; }
-
-        html, body {
-            margin: 0; padding: 0; height: 100%; width: 100vw;
-            overflow: hidden; background-color: var(--bg-dark);
-            color: #fff; font-family: 'Montserrat', sans-serif;
-            touch-action: pan-y; display: flex; justify-content: center; align-items: center; 
+        .dashboard {
+            background: #1e1e1e;
+            padding: 40px;
+            border-radius: 20px;
+            box-shadow: 0 0 20px rgba(0, 255, 136, 0.2);
+            text-align: center;
+            width: 80%;
+            max-width: 400px;
         }
-
-        body::before {
-            content: ""; position: absolute; top: 0; left: 50%;
-            transform: translateX(-50%); width: 100%; height: 60%;
-            background: radial-gradient(circle, rgba(255, 106, 0, 0.08) 0%, transparent 80%);
-            z-index: 0; pointer-events: none;
+        .rpm-display {
+            font-size: 80px;
+            font-weight: bold;
+            color: #00ff88;
+            margin: 20px 0;
+            text-shadow: 0 0 10px rgba(0, 255, 136, 0.5);
         }
-
-        .app-container {
-            position: relative; z-index: 1; width: 100%; max-width: 500px; 
-            height: 100%; display: flex; flex-direction: column;
-            padding: env(safe-area-inset-top, 15px) 15px env(safe-area-inset-bottom, 15px) 15px;
+        .label {
+            font-size: 20px;
+            color: #888;
+            letter-spacing: 2px;
         }
-
-        .header { text-align: center; padding: 5px 0 15px 0; flex-shrink: 0; }
-
-        h1 { 
-            color: var(--gold); font-size: clamp(18px, 5vw, 24px); margin: 0; 
-            text-transform: uppercase; letter-spacing: 2px; font-weight: 900;
-            text-shadow: 0 0 20px rgba(255, 106, 0, 0.4);
+        button {
+            background: #00ff88;
+            color: #121212;
+            border: none;
+            padding: 15px 30px;
+            font-size: 18px;
+            font-weight: bold;
+            border-radius: 10px;
+            cursor: pointer;
+            margin-top: 20px;
+            transition: 0.3s;
         }
-
-        .subtitle {
-            font-size: clamp(8px, 2.5vw, 10px); color: #777; letter-spacing: 2px;
-            margin-top: 5px; text-transform: uppercase; font-weight: 600;
+        button:hover {
+            background: #00cc6a;
         }
-
-        .text-area-wrapper {
-            flex-grow: 1; min-height: 80px; position: relative; border-radius: 20px;
-            background: var(--glass-bg); border: 1px solid var(--glass-border);
-            backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
-            box-shadow: inset 0 5px 20px rgba(0,0,0,0.5), 0 10px 30px rgba(0,0,0,0.3);
-            margin-bottom: 15px; overflow: hidden; display: flex;
+        #status {
+            margin-top: 15px;
+            font-size: 14px;
+            color: #ff4444;
         }
-
-        textarea {
-            width: 100%; height: 100%; background: transparent; color: #e0e0e0;
-            border: none; padding: 15px; font-size: clamp(13px, 4vw, 15px);
-            font-family: inherit; line-height: 1.5; resize: none; outline: none; word-wrap: break-word; 
-        }
-        
-        textarea::selection { background: rgba(255, 106, 0, 0.4); color: #fff; }
-
-        textarea::-webkit-scrollbar { width: 4px; }
-        textarea::-webkit-scrollbar-track { background: transparent; }
-        textarea::-webkit-scrollbar-thumb { background: rgba(255, 106, 0, 0.3); border-radius: 10px; }
-        textarea::-webkit-scrollbar-thumb:hover { background: var(--gold); }
-        textarea::placeholder { color: #444; font-weight: 400; }
-
-        .controls { flex-shrink: 0; display: flex; flex-direction: column; gap: 10px; width: 100%; }
-        input[type="file"] { display: none; }
-
-        .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-
-        .btn {
-            display: flex; align-items: center; justify-content: center; width: 100%;
-            padding: 16px 10px; border-radius: 16px; border: none; font-size: clamp(12px, 4vw, 16px);
-            font-weight: 800; cursor: pointer; text-transform: uppercase; letter-spacing: 1px;
-            transition: all 0.2s cubic-bezier(0.25, 0.46, 0.45, 0.94);
-            user-select: none; -webkit-tap-highlight-color: transparent; text-align: center; white-space: normal; 
-        }
-
-        .btn-file { background: rgba(30, 30, 30, 0.8); color: #fff; border: 1px solid #333; }
-        .btn-file:active { background: #222; transform: scale(0.98); }
-
-        .btn-clear { background: rgba(218, 54, 51, 0.1); color: #da3633; border: 1px solid #da3633; }
-        .btn-clear:active { background: rgba(218, 54, 51, 0.3); transform: scale(0.98); }
-        
-        .btn-mic { background: #0f0f0f; color: #888; border: 1px dashed #333; padding: 12px; font-size: 11px; }
-        .btn-mic.active { background: rgba(255, 106, 0, 0.1); color: var(--gold); border-color: var(--gold); box-shadow: 0 0 15px rgba(255,106,0,0.2); }
-        .btn-mic.disabled { background: rgba(218, 54, 51, 0.05); color: #da3633; border-color: #da3633; cursor: not-allowed; }
-
-        .file-name-label {
-            font-size: 10px; color: #888; text-align: center; margin-top: -5px; margin-bottom: 2px;
-            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-        }
-        
-        .time-estimate { font-size: 10px; color: var(--gold); font-weight: 800; text-align: center; margin-bottom: 5px; }
-        
-        /* ДОБАВЛЕНО: Сетка теперь на 3 колонки, чтобы вместить режим поэзии */
-        .settings-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
-
-        .speed-panel {
-            display: flex; justify-content: space-between; flex-direction: column; background: rgba(0,0,0,0.4);
-            border-radius: 12px; padding: 4px; border: 1px solid #222;
-        }
-        .speed-panel-row { display: flex; width: 100%; }
-
-        .speed-btn {
-            flex: 1; background: transparent; color: #666; border: none; padding: 8px 0;
-            font-size: 11px; font-weight: 800; border-radius: 8px; transition: 0.3s;
-        }
-        .speed-btn.active { background: rgba(255, 106, 0, 0.15); color: var(--gold); }
-
-        .btn-play { background: linear-gradient(135deg, var(--gold), var(--gold-dark)); color: #000; box-shadow: 0 8px 25px rgba(255, 106, 0, 0.3); }
-        .btn-play:active { transform: scale(0.96); box-shadow: 0 4px 15px rgba(255, 106, 0, 0.2); }
-        .btn-pause { background: #1a1a1a; color: #f39c12; border: 1px solid #333; }
-        .btn-pause:active { transform: scale(0.96); background: #111; }
-        .btn-stop { background: #111; color: #666; border: 1px solid #1a1a1a; }
-        .btn-stop:active { transform: scale(0.96); color: #fff; }
-
-        .status-bar {
-            background: #080808; border-radius: 12px; padding: 12px; text-align: center;
-            font-size: clamp(9px, 3vw, 11px); font-weight: 800; color: var(--gold);
-            border: 1px solid #151515; letter-spacing: 1px; display: flex; justify-content: center;
-            align-items: center; gap: 10px;
-        }
-
-        .pulse { animation: pulseAnim 2s infinite; }
-        @keyframes pulseAnim { 0% { opacity: 0.6; } 50% { opacity: 1; text-shadow: 0 0 10px var(--gold); } 100% { opacity: 0.6; } }
-
-        .visualizer { display: none; align-items: center; gap: 3px; height: 15px; }
-        .bar { width: 3px; background-color: var(--gold); border-radius: 3px; animation: soundWave 1.2s ease-in-out infinite alternate; }
-        .bar:nth-child(1) { height: 30%; animation-delay: 0.0s; }
-        .bar:nth-child(2) { height: 100%; animation-delay: 0.2s; }
-        .bar:nth-child(3) { height: 60%; animation-delay: 0.4s; }
-        .bar:nth-child(4) { height: 80%; animation-delay: 0.6s; }
-        .bar:nth-child(5) { height: 40%; animation-delay: 0.8s; }
-        @keyframes soundWave { 0% { height: 20%; opacity: 0.5; } 100% { height: 100%; opacity: 1; } }
     </style>
 </head>
 <body>
 
-    <div class="app-container">
-        <div class="header">
-            <h1>TITAN AUDIO</h1>
-            <div class="subtitle">X-CONECT NEURAL SYSTEM</div>
-        </div>
-
-        <div class="text-area-wrapper">
-            <textarea id="textDisplay" placeholder="Ожидание файла... (PDF, DOCX, XLSX, TXT) или вставь таблицу сюда"></textarea>
-        </div>
-
-        <div class="controls">
-            <div class="grid-2">
-                <label class="btn btn-file">
-                    📁 ФАЙЛ
-                    <input type="file" id="fileInput" accept=".txt,.pdf,.docx,.xlsx,.xls,.csv,.json,.gdoc,.gsheet">
-                </label>
-                <button class="btn btn-clear" id="clearBtn">🗑️ ОЧИСТИТЬ</button>
-            </div>
-            
-            <div class="file-name-label" id="fileNameLabel">Файл не выбран</div>
-            <div class="time-estimate" id="timeEstimateLabel">⏱️ ВРЕМЯ ЧТЕНИЯ: 0 МИН</div>
-
-            <div class="settings-grid">
-                <div class="speed-panel">
-                    <div class="file-name-label" style="margin: 0; color:#444;">СКОРОСТЬ</div>
-                    <div class="speed-panel-row">
-                        <button class="speed-btn" data-speed="0.8">0.8x</button>
-                        <button class="speed-btn active" data-speed="1.0">1.0x</button>
-                    </div>
-                </div>
-                <div class="speed-panel">
-                    <div class="file-name-label" style="margin: 0; color:#444;">ТЕМБР</div>
-                    <div class="speed-panel-row">
-                        <button class="speed-btn pitch-btn" data-pitch="0.7">БАС</button>
-                        <button class="speed-btn pitch-btn active" data-pitch="1.0">НОРМ</button>
-                    </div>
-                </div>
-                <div class="speed-panel">
-                    <div class="file-name-label" style="margin: 0; color:#444;">РЕЖИМ</div>
-                    <div class="speed-panel-row">
-                        <button class="speed-btn mode-btn active" data-mode="prose">ПРОЗА</button>
-                        <button class="speed-btn mode-btn" data-mode="poetry">🎭 СТИХИ</button>
-                    </div>
-                </div>
-            </div>
-
-            <button class="btn btn-play" id="startBtn">▶ ПУСК</button>
-            <button class="btn btn-pause" id="pauseBtn">⏸ ПАУЗА / ПРОДОЛЖИТЬ</button>
-            <button class="btn btn-stop" id="stopBtn">⏹ СТОП</button>
-
-            <button class="btn btn-mic" id="micBtn">🎤 ГОЛОСОВОЙ КОМАНДИР: ПРОВЕРКА...</button>
-
-            <div class="status-bar" id="statusLabel">
-                <span id="statusText">СИСТЕМА В РЕЖИМЕ ОЖИДАНИЯ</span>
-                <div class="visualizer" id="audioVisualizer">
-                    <div class="bar"></div><div class="bar"></div><div class="bar"></div><div class="bar"></div><div class="bar"></div>
-                </div>
-            </div>
-        </div>
+    <div class="dashboard">
+        <div class="label">ОБОРОТЫ ДВИГАТЕЛЯ</div>
+        <div class="rpm-display" id="rpmValue">---</div>
+        <div class="label">RPM</div>
+        
+        <button id="connectBtn">ПОДКЛЮЧИТЬ USB</button>
+        <div id="status">Отключено</div>
     </div>
 
     <script>
-        const synth = window.speechSynthesis;
-        let isCustomPaused = false; 
-        let currentSpeed = 1.0;
-        let currentPitch = 1.0;
-        let currentMode = 'prose'; // ДОБАВЛЕНО: Для стихов
-        
-        window.titanVoiceMsg = null;
-        
-        let lastWordIndex = 0;
-        let currentRelativeIndex = 0;
-        let heartbeatTimer = null;
-        let currentReadingText = ""; 
-        
-        let titanChunks = [];
-        let currentChunkIndex = 0;
-        let isTextSelected = false;
-        
-        // ДОБАВЛЕНО: Смещение для точного поиска выделения
-        let chunkSearchOffset = 0; 
-        
-        let actionLocked = false;
+        let port;
+        let reader;
+        let keepReading = true;
 
-        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.11.338/pdf.worker.min.js';
+        const connectBtn = document.getElementById('connectBtn');
+        const rpmValue = document.getElementById('rpmValue');
+        const statusText = document.getElementById('status');
 
-        const fileInput = document.getElementById('fileInput');
-        const textDisplay = document.getElementById('textDisplay');
-        const statusLabel = document.getElementById('statusLabel');
-        const statusText = document.getElementById('statusText');
-        const fileNameLabel = document.getElementById('fileNameLabel');
-        const visualizer = document.getElementById('audioVisualizer');
-        const timeEstimateLabel = document.getElementById('timeEstimateLabel');
-        const micBtn = document.getElementById('micBtn');
-
-        function updateTimeEstimate() {
-            const text = textDisplay.value.trim();
-            if(!text) { timeEstimateLabel.innerText = "⏱️ ВРЕМЯ ЧТЕНИЯ: 0 МИН"; return; }
-            const words = text.split(/\s+/).length;
-            const mins = Math.ceil(words / (130 * currentSpeed));
-            timeEstimateLabel.innerText = `⏱️ ВРЕМЯ ЧТЕНИЯ: ~${mins} МИН`;
-        }
-
-        window.onload = () => {
-            const savedText = localStorage.getItem('titanSavedText');
-            if(savedText) {
-                textDisplay.value = savedText;
-                fileNameLabel.innerText = "Восстановлено из памяти";
-                updateTimeEstimate();
-            }
-            checkMicSupport();
-        };
-
-        textDisplay.addEventListener('input', () => {
-            localStorage.setItem('titanSavedText', textDisplay.value);
-            updateTimeEstimate();
-        });
-
-        textDisplay.addEventListener('paste', (e) => {
-            setTimeout(() => {
-                let text = textDisplay.value;
-                text = text.replace(/\t/g, ', '); 
-                textDisplay.value = text;
-                localStorage.setItem('titanSavedText', text);
-                updateTimeEstimate();
-            }, 50);
-        });
-
-        document.getElementById('clearBtn').onclick = () => {
-            textDisplay.value = '';
-            localStorage.removeItem('titanSavedText');
-            fileNameLabel.innerText = "Файл не выбран";
-            updateTimeEstimate();
-            document.getElementById('stopBtn').click(); 
-            updateStatus("🗑️ ПАМЯТЬ ОЧИЩЕНА", "#888", false, false);
-        };
-
-        const speedBtns = document.querySelectorAll('.speed-btn:not(.pitch-btn):not(.mode-btn)');
-        speedBtns.forEach(btn => {
-            btn.onclick = () => {
-                speedBtns.forEach(b => b.classList.remove('active'));
-                btn.classList.add('active');
-                currentSpeed = parseFloat(btn.getAttribute('data-speed'));
-                updateTimeEstimate();
-                if (synth.speaking && !isCustomPaused) { synth.cancel(); playNextChunk(); }
-            };
-        });
-
-        const pitchBtns = document.querySelectorAll('.pitch-btn');
-        pitchBtns.forEach(btn => {
-            btn.onclick = () => {
-                pitchBtns.forEach(b => b.classList.remove('active'));
-                btn.classList.add('active');
-                currentPitch = parseFloat(btn.getAttribute('data-pitch'));
-                if (synth.speaking && !isCustomPaused) { synth.cancel(); playNextChunk(); }
-            };
-        });
-
-        // ДОБАВЛЕНО: Кнопки переключения режимов
-        const modeBtns = document.querySelectorAll('.mode-btn');
-        modeBtns.forEach(btn => {
-            btn.onclick = () => {
-                modeBtns.forEach(b => b.classList.remove('active'));
-                btn.classList.add('active');
-                currentMode = btn.getAttribute('data-mode');
-                
-                if (synth.speaking && !isCustomPaused) {
-                    document.getElementById('stopBtn').click();
-                    setTimeout(() => { document.getElementById('startBtn').click(); }, 300);
-                }
-            };
-        });
-
-        function updateStatus(text, color = "var(--gold)", pulse = false, showVis = false) {
-            statusText.innerText = text;
-            statusLabel.style.color = color;
-            if (pulse) statusLabel.classList.add('pulse');
-            else statusLabel.classList.remove('pulse');
-            visualizer.style.display = showVis ? 'flex' : 'none';
-        }
-
-        fileInput.onchange = async (e) => {
-            const file = e.target.files[0];
-            if (!file) return;
-
-            fileNameLabel.innerText = "Выбран: " + file.name;
-            updateStatus("⚡ ОБРАБОТКА ДАННЫХ...", "#fff", true);
-            const ext = file.name.split('.').pop().toLowerCase();
-
+        connectBtn.addEventListener('click', async () => {
             try {
-                if (ext === 'gdoc' || ext === 'gsheet') {
-                    updateStatus("⚠️ ЭТО ЯРЛЫК. ВСТАВЬ ТЕКСТ ВРУЧНУЮ", "#f39c12");
-                    textDisplay.value = "Система Titan информирует: файлы .gdoc и .gsheet — это облачные ярлыки. Откройте этот документ с телефона, скопируйте нужный текст и вставьте его прямо в это черное поле. Умный буфер отформатирует его автоматически.";
-                    return;
-                }
-                else if (ext === 'txt' || ext === 'csv' || ext === 'json') {
-                    const reader = new FileReader();
-                    reader.onload = (res) => { 
-                        textDisplay.value = res.target.result; 
-                        localStorage.setItem('titanSavedText', textDisplay.value);
-                        updateTimeEstimate();
-                        updateStatus(`✅ ФАЙЛ ${ext.toUpperCase()} ГОТОВ`); 
-                    };
-                    reader.readAsText(file);
-                } 
-                else if (ext === 'pdf') {
-                    const reader = new FileReader();
-                    reader.onload = async function() {
-                        const typedarray = new Uint8Array(this.result);
-                        const pdf = await pdfjsLib.getDocument(typedarray).promise;
-                        let text = "";
-                        for (let i = 1; i <= pdf.numPages; i++) {
-                            const page = await pdf.getPage(i);
-                            const content = await page.getTextContent();
-                            text += content.items.map(s => s.str).join(' ') + "\n";
-                        }
-                        textDisplay.value = text;
-                        localStorage.setItem('titanSavedText', textDisplay.value);
-                        updateTimeEstimate();
-                        updateStatus("✅ ФАЙЛ PDF ГОТОВ");
-                    };
-                    reader.readAsArrayBuffer(file);
-                } 
-                else if (ext === 'docx') {
-                    const reader = new FileReader();
-                    reader.onload = async (res) => {
-                        const out = await mammoth.extractRawText({arrayBuffer: res.target.result});
-                        textDisplay.value = out.value;
-                        localStorage.setItem('titanSavedText', textDisplay.value);
-                        updateTimeEstimate();
-                        updateStatus("✅ ФАЙЛ WORD ГОТОВ");
-                    };
-                    reader.readAsArrayBuffer(file);
-                } 
-                else if (ext === 'xlsx' || ext === 'xls') {
-                    const reader = new FileReader();
-                    reader.onload = (res) => {
-                        const data = new Uint8Array(res.target.result);
-                        const wb = XLSX.read(data, {type: 'array'});
-                        let text = "";
-                        wb.SheetNames.forEach(name => {
-                            text += `Лист: ${name}\n` + XLSX.utils.sheet_to_txt(wb.Sheets[name]) + "\n";
-                        });
-                        textDisplay.value = text;
-                        localStorage.setItem('titanSavedText', textDisplay.value);
-                        updateTimeEstimate();
-                        updateStatus("✅ ФАЙЛ EXCEL ГОТОВ");
-                    };
-                    reader.readAsArrayBuffer(file);
-                }
+                // Запрашиваем доступ к USB порту
+                port = await navigator.serial.requestPort();
+                await port.open({ baudRate: 115200 });
+
+                statusText.style.color = '#00ff88';
+                statusText.textContent = 'Подключено. Ожидание данных...';
+                connectBtn.style.display = 'none';
+
+                keepReading = true;
+                readLoop();
             } catch (err) {
-                updateStatus("❌ ОШИБКА ЧТЕНИЯ ФОРМАТА", "#da3633");
+                statusText.textContent = 'Ошибка подключения: ' + err.message;
             }
-        };
+        });
 
-        function playNextChunk() {
-            if (currentChunkIndex >= titanChunks.length) {
-                updateStatus("✅ СЕАНС ЗАВЕРШЕН", "var(--gold)", false, false);
-                textDisplay.removeAttribute('readonly'); 
-                actionLocked = false;
-                return;
-            }
-            if (isCustomPaused) return;
+        async function readLoop() {
+            const textDecoder = new TextDecoderStream();
+            const readableStreamClosed = port.readable.pipeTo(textDecoder.writable);
+            reader = textDecoder.readable.getReader();
 
-            const chunkText = titanChunks[currentChunkIndex];
-            if (!chunkText || chunkText.trim() === '') {
-                currentChunkIndex++;
-                playNextChunk();
-                return;
-            }
+            let buffer = '';
 
             try {
-                const fullText = textDisplay.value;
-                
-                // ДОБАВЛЕНО: Исправление бага с перепрыгиванием выделения (ищем только ВПЕРЕД)
-                const startIndex = fullText.indexOf(chunkText, chunkSearchOffset);
-                
-                if (startIndex !== -1) {
-                    chunkSearchOffset = startIndex + chunkText.length; // Сдвигаем трекер для следующего куска
-                    textDisplay.setAttribute('readonly', 'true'); 
-                    textDisplay.focus(); 
-                    textDisplay.setSelectionRange(startIndex, startIndex + chunkText.length); 
+                while (keepReading) {
+                    const { value, done } = await reader.read();
+                    if (done) {
+                        break;
+                    }
                     
-                    const scrollPos = (textDisplay.scrollHeight * (startIndex / fullText.length));
-                    textDisplay.scrollTop = scrollPos - 40; 
-                }
-            } catch(e) {}
+                    buffer += value;
+                    let lines = buffer.split('\n');
+                    
+                    // Оставляем последний незаконченный фрагмент в буфере
+                    buffer = lines.pop(); 
 
-            window.titanVoiceMsg = new SpeechSynthesisUtterance(chunkText);
-            window.titanVoiceMsg.lang = 'ru-RU';
-            window.titanVoiceMsg.rate = currentSpeed; 
-            window.titanVoiceMsg.pitch = currentPitch;
-
-            const voices = synth.getVoices();
-            const preferredVoices = ['Google русский', 'Pavel', 'Google', 'RUSS'];
-            let selectedVoice = null;
-            
-            preferredVoices.forEach(namePart => {
-                if (!selectedVoice) selectedVoice = voices.find(v => v.lang === 'ru-RU' && v.name.includes(namePart));
-            });
-            
-            if (!selectedVoice) selectedVoice = voices.find(v => v.lang === 'ru-RU');
-            if (selectedVoice) window.titanVoiceMsg.voice = selectedVoice;
-
-            window.titanVoiceMsg.onend = () => {
-                if (!isCustomPaused) {
-                    currentChunkIndex++; 
-                    // ДОБАВЛЕНО: Если режим СТИХИ, делаем глубокую паузу
-                    if (currentMode === 'poetry') {
-                        setTimeout(() => { playNextChunk(); }, 600); 
-                    } else {
-                        playNextChunk(); 
+                    for (let line of lines) {
+                        line = line.trim();
+                        if (line.startsWith('RPM:')) {
+                            // Вытаскиваем цифры и обновляем экран
+                            const rpm = line.split(':')[1];
+                            rpmValue.textContent = rpm;
+                        }
                     }
                 }
-            };
-
-            window.titanVoiceMsg.onerror = () => {
-                if (!isCustomPaused) {
-                    currentChunkIndex++;
-                    playNextChunk();
-                }
+            } catch (error) {
+                statusText.style.color = '#ff4444';
+                statusText.textContent = 'Обрыв связи.';
+            } finally {
+                reader.releaseLock();
             }
-
-            synth.speak(window.titanVoiceMsg);
-            updateStatus(isTextSelected ? "🔊 ЧТЕНИЕ ВЫДЕЛЕНИЯ" : "🔊 ВОСПРОИЗВЕДЕНИЕ", "var(--gold)", true, true);
-            
-            setTimeout(() => { actionLocked = false; }, 500);
         }
-
-        document.getElementById('startBtn').onclick = () => {
-            if (actionLocked) return;
-            actionLocked = true;
-            
-            const fullText = textDisplay.value;
-            const selStart = textDisplay.selectionStart;
-            const selEnd = textDisplay.selectionEnd;
-            const selectedText = fullText.substring(selStart, selEnd);
-            
-            isTextSelected = selectedText.length > 0;
-            currentReadingText = isTextSelected ? selectedText : fullText;
-            
-            if (!currentReadingText) { actionLocked = false; return; }
-
-            // ДОБАВЛЕНО: Точная точка старта для выделения
-            chunkSearchOffset = isTextSelected ? selStart : 0; 
-            
-            lastWordIndex = 0; 
-            currentRelativeIndex = 0;
-            isCustomPaused = false;
-            synth.cancel();
-
-            // ДОБАВЛЕНО: Нарезчик подстраивается под режим (Проза или Стихи)
-            if (currentMode === 'poetry') {
-                titanChunks = currentReadingText.split(/\n+/).filter(line => line.trim().length > 0);
-            } else {
-                titanChunks = currentReadingText.match(/[^.!?\n]+[.!?\n]+/g) || [currentReadingText];
-            }
-            
-            currentChunkIndex = 0;
-            playNextChunk(); 
-        };
-
-        document.getElementById('pauseBtn').onclick = () => {
-            if (actionLocked) return;
-            actionLocked = true;
-
-            if (synth.speaking && !isCustomPaused) {
-                isCustomPaused = true;
-                synth.cancel(); 
-                textDisplay.removeAttribute('readonly'); 
-                updateStatus("⏸ СИСТЕМА НА ПАУЗЕ", "#f39c12", false, false);
-                setTimeout(() => { actionLocked = false; }, 300);
-            } else if (isCustomPaused) {
-                isCustomPaused = false;
-                playNextChunk(); 
-            } else {
-                actionLocked = false; 
-            }
-        };
-
-        document.getElementById('stopBtn').onclick = () => {
-            synth.cancel();
-            isCustomPaused = false;
-            currentChunkIndex = 0; 
-            titanChunks = [];
-            lastWordIndex = 0; 
-            currentRelativeIndex = 0;
-            chunkSearchOffset = 0;
-            clearInterval(heartbeatTimer);
-            textDisplay.removeAttribute('readonly'); 
-            updateStatus("⏹ СИСТЕМА ОСТАНОВЛЕНА", "#666", false, false);
-            actionLocked = false;
-        };
-
-        window.speechSynthesis.onvoiceschanged = () => { synth.getVoices(); };
-
-        // ДОБАВЛЕНО: УСОВЕРШЕНСТВОВАННАЯ ЛОГИКА МИКРОФОНА
-        const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
-        let isMicActive = false;
-        let recognizer = null;
-
-        function checkMicSupport() {
-            if (!SpeechRec) {
-                micBtn.innerText = "🎤 ГОЛОС НЕ ПОДДЕРЖИВАЕТСЯ БРАУЗЕРОМ";
-                micBtn.classList.add('disabled');
-                return;
-            }
-            
-            if (window.location.protocol === 'file:') {
-                micBtn.innerText = "🎤 НУЖЕН СЕРВЕР (HTTPS) ДЛЯ ГОЛОСА";
-                micBtn.classList.add('disabled');
-                return;
-            }
-            
-            micBtn.innerText = "🎤 ГОЛОСОВОЙ КОМАНДИР: ВЫКЛ";
-        }
-
-        if (SpeechRec && window.location.protocol !== 'file:') {
-            recognizer = new SpeechRec();
-            recognizer.lang = 'ru-RU';
-            recognizer.continuous = true; 
-            
-            recognizer.onresult = (e) => {
-                const cmd = e.results[e.results.length - 1][0].transcript.toLowerCase().trim();
-                console.log("Услышал команду: ", cmd);
-                
-                // ДОБАВЛЕНО: Визуально показываем, что телефон не глухой
-                micBtn.innerText = "🎤 УСЛЫШАЛ: " + cmd;
-                setTimeout(() => { 
-                    if(isMicActive && micBtn.innerText.includes("УСЛЫШАЛ")) {
-                        micBtn.innerText = "🎤 ГОЛОС: АКТИВЕН (СКАЖИ 'ТИТАН, ПАУЗА')";
-                    }
-                }, 2000);
-                
-                // ДОБАВЛЕНО: Защита от ошибок нейросети (учитываем, как телефон может расслышать слово Титан)
-                const isWakeWord = /титан|titan|система|читан|тетан|братан|цветан/.test(cmd);
-                
-                if (isWakeWord || cmd.includes('пауза') || cmd.includes('стоп')) {
-                    if (cmd.includes('пауза') || cmd.includes('жди')) document.getElementById('pauseBtn').click();
-                    else if (cmd.includes('продолжи') || cmd.includes('дальше') || cmd.includes('погнали')) {
-                        if (isCustomPaused) document.getElementById('pauseBtn').click();
-                        else document.getElementById('startBtn').click();
-                    }
-                    else if (cmd.includes('стоп') || cmd.includes('останови') || cmd.includes('хватит')) document.getElementById('stopBtn').click();
-                    else if (cmd.includes('читай') || cmd.includes('старт') || cmd.includes('пуск')) document.getElementById('startBtn').click();
-                }
-            };
-            
-            recognizer.onend = () => {
-                if (isMicActive) {
-                    // ДОБАВЛЕНО: Таймер-предохранитель от падения микрофона
-                    setTimeout(() => {
-                        try { recognizer.start(); } catch(err){}
-                    }, 300);
-                }
-            };
-            
-            recognizer.onerror = (e) => {
-                if(e.error === 'not-allowed') {
-                    micBtn.innerText = "🎤 МИКРОФОН ЗАБЛОКИРОВАН В НАСТРОЙКАХ";
-                    micBtn.classList.add('disabled');
-                    isMicActive = false;
-                }
-            };
-            
-            micBtn.onclick = () => {
-                if(micBtn.classList.contains('disabled')) return;
-                
-                isMicActive = !isMicActive;
-                if (isMicActive) {
-                    try { recognizer.start(); } catch(err){}
-                    micBtn.innerText = "🎤 ГОЛОС: АКТИВЕН (СКАЖИ 'ТИТАН, ПАУЗА')";
-                    micBtn.classList.add('active');
-                } else {
-                    recognizer.stop();
-                    micBtn.innerText = "🎤 ГОЛОСОВОЙ КОМАНДИР: ВЫКЛ";
-                    micBtn.classList.remove('active');
-                }
-            };
-        }
-
     </script>
 </body>
 </html>
