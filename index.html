@@ -3,135 +3,192 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Панель Телеметрии</title>
+    <title>ATOM | Интеллектуальные рекламные решения</title>
+    <script src="https://cdn.tailwindcss.com"></script>
     <style>
+        @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&family=Inter:wght@300;400;600&display=swap');
+
+        :root {
+            --accent: #ffb400; /* Золотой акцент */
+            --bg: #0a0a0a;
+        }
+
         body {
-            background-color: #121212;
-            color: #ffffff;
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            height: 100vh;
-            margin: 0;
+            background-color: var(--bg);
+            color: white;
+            font-family: 'Inter', sans-serif;
+            overflow-x: hidden;
         }
-        .dashboard {
-            background: #1e1e1e;
-            padding: 40px;
+
+        .glass {
+            background: rgba(255, 255, 255, 0.03);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.05);
             border-radius: 20px;
-            box-shadow: 0 0 20px rgba(0, 255, 136, 0.2);
-            text-align: center;
-            width: 80%;
-            max-width: 400px;
         }
-        .rpm-display {
-            font-size: 80px;
-            font-weight: bold;
-            color: #00ff88;
-            margin: 20px 0;
-            text-shadow: 0 0 10px rgba(0, 255, 136, 0.5);
+
+        .aura-sphere {
+            width: 60px;
+            height: 60px;
+            background: radial-gradient(circle, var(--accent) 0%, transparent 70%);
+            filter: blur(5px);
+            animation: pulse 2s infinite;
         }
-        .label {
-            font-size: 20px;
-            color: #888;
-            letter-spacing: 2px;
+
+        @keyframes pulse {
+            0% { transform: scale(1); opacity: 0.5; }
+            50% { transform: scale(1.2); opacity: 1; }
+            100% { transform: scale(1); opacity: 0.5; }
         }
-        button {
-            background: #00ff88;
-            color: #121212;
-            border: none;
-            padding: 15px 30px;
-            font-size: 18px;
-            font-weight: bold;
-            border-radius: 10px;
-            cursor: pointer;
-            margin-top: 20px;
+
+        .neo-btn {
+            background: linear-gradient(145deg, var(--accent), #cc9100);
+            box-shadow: 0 4px 15px rgba(255, 180, 0, 0.3);
             transition: 0.3s;
         }
-        button:hover {
-            background: #00cc6a;
-        }
-        #status {
-            margin-top: 15px;
-            font-size: 14px;
-            color: #ff4444;
-        }
+
+        .neo-btn:active { transform: scale(0.95); }
+
+        h1, h2 { font-family: 'Orbitron', sans-serif; letter-spacing: 2px; }
     </style>
 </head>
-<body>
+<body class="p-4 md:p-10">
 
-    <div class="dashboard">
-        <div class="label">ОБОРОТЫ ДВИГАТЕЛЯ</div>
-        <div class="rpm-display" id="rpmValue">---</div>
-        <div class="label">RPM</div>
+    <header class="flex justify-between items-center mb-10">
+        <div class="text-2xl font-bold text-amber-500">ATOM<span class="text-white">64</span></div>
+        <div id="city-tag" class="text-xs opacity-50 border border-white/20 px-3 py-1 rounded-full">ОПРЕДЕЛЕНИЕ ЛОКАЦИИ...</div>
+    </header>
+
+    <section class="mb-12">
+        <h1 class="text-3xl md:text-5xl font-bold mb-4 uppercase leading-tight">
+            Ваша реклама там, где ее <span class="text-amber-500">точно увидят</span>
+        </h1>
+        <p class="text-gray-400 mb-8 max-w-lg">Федеральная сеть рекламных конструкций. Охватываем более 100 городов России с гарантией контакта 97%.</p>
         
-        <button id="connectBtn">ПОДКЛЮЧИТЬ USB</button>
-        <div id="status">Отключено</div>
+        <button onclick="activateAura()" class="neo-btn text-black font-bold py-4 px-8 rounded-xl w-full md:w-auto">
+            ЗАПУСТИТЬ АНАЛИЗ ОХВАТА
+        </button>
+    </section>
+
+    <div class="glass p-6 mb-8 relative overflow-hidden">
+        <div class="flex items-center justify-between mb-4">
+            <h2 class="text-sm text-amber-500 uppercase">Статистика региона</h2>
+            <div class="aura-sphere"></div>
+        </div>
+        <div class="grid grid-cols-2 gap-4">
+            <div>
+                <div class="text-xs text-gray-500 uppercase mb-1">Город</div>
+                <div id="display-city" class="text-xl font-semibold">-</div>
+            </div>
+            <div>
+                <div class="text-xs text-gray-500 uppercase mb-1">Охват (нед.)</div>
+                <div id="display-reach" class="text-xl font-semibold text-amber-500">0</div>
+            </div>
+        </div>
+    </div>
+
+    <section class="glass p-6 mb-12">
+        <h2 class="text-lg mb-6 uppercase">Калькулятор эффективности</h2>
+        <div class="mb-8">
+            <label class="block text-xs text-gray-500 mb-2 uppercase">Ваш рекламный бюджет</label>
+            <input type="range" id="budgetRange" min="5000" max="200000" step="5000" value="15000" 
+                   class="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-amber-500">
+            <div class="flex justify-between mt-2 text-xl font-bold">
+                <span id="budgetValue">15 000</span> <span class="text-amber-500">₽</span>
+            </div>
+        </div>
+        
+        <div class="bg-white/5 p-4 rounded-xl border border-white/10">
+            <div class="text-xs text-gray-500 mb-1 uppercase">Прогноз контактов</div>
+            <div class="text-3xl font-bold" id="calcReach">126 000</div>
+            <div class="text-[10px] text-green-500 mt-1 uppercase">● Более 100 рекламных щитов</div>
+        </div>
+    </section>
+
+    <div id="aura-status" class="fixed bottom-0 left-0 w-full p-4 glass border-t border-white/10 translate-y-full transition-transform duration-500">
+        <div class="flex items-center gap-4">
+            <div class="aura-sphere w-10 h-10"></div>
+            <div class="text-xs italic text-gray-300" id="aura-text">Аура готова к работе...</div>
+        </div>
     </div>
 
     <script>
-        let port;
-        let reader;
-        let keepReading = true;
+        // ДАННЫЕ ПО ГОРОДАМ (Пример)
+        const cityData = {
+            "Saratov": { name: "Саратов", reach: "450 000", multiplier: 8.5 },
+            "Tula": { name: "Тула", reach: "280 000", multiplier: 7.2 },
+            "Orel": { name: "Орёл", reach: "190 000", multiplier: 6.8 },
+            "Moscow": { name: "Москва", reach: "2 500 000", multiplier: 12.4 },
+            "Default": { name: "Россия", reach: "500 000+", multiplier: 7.0 }
+        };
 
-        const connectBtn = document.getElementById('connectBtn');
-        const rpmValue = document.getElementById('rpmValue');
-        const statusText = document.getElementById('status');
+        let currentCity = cityData["Default"];
 
-        connectBtn.addEventListener('click', async () => {
-            try {
-                // Запрашиваем доступ к USB порту
-                port = await navigator.serial.requestPort();
-                await port.open({ baudRate: 115200 });
+        // ГОЛОСОВОЙ ПОМОЩНИК (АУРА)
+        function speak(text) {
+            const auraStatus = document.getElementById('aura-status');
+            const auraText = document.getElementById('aura-text');
+            
+            auraStatus.style.transform = 'translateY(0)';
+            auraText.innerText = text;
 
-                statusText.style.color = '#00ff88';
-                statusText.textContent = 'Подключено. Ожидание данных...';
-                connectBtn.style.display = 'none';
-
-                keepReading = true;
-                readLoop();
-            } catch (err) {
-                statusText.textContent = 'Ошибка подключения: ' + err.message;
-            }
-        });
-
-        async function readLoop() {
-            const textDecoder = new TextDecoderStream();
-            const readableStreamClosed = port.readable.pipeTo(textDecoder.writable);
-            reader = textDecoder.readable.getReader();
-
-            let buffer = '';
-
-            try {
-                while (keepReading) {
-                    const { value, done } = await reader.read();
-                    if (done) {
-                        break;
-                    }
-                    
-                    buffer += value;
-                    let lines = buffer.split('\n');
-                    
-                    // Оставляем последний незаконченный фрагмент в буфере
-                    buffer = lines.pop(); 
-
-                    for (let line of lines) {
-                        line = line.trim();
-                        if (line.startsWith('RPM:')) {
-                            // Вытаскиваем цифры и обновляем экран
-                            const rpm = line.split(':')[1];
-                            rpmValue.textContent = rpm;
-                        }
-                    }
-                }
-            } catch (error) {
-                statusText.style.color = '#ff4444';
-                statusText.textContent = 'Обрыв связи.';
-            } finally {
-                reader.releaseLock();
+            if ('speechSynthesis' in window) {
+                window.speechSynthesis.cancel();
+                const msg = new SpeechSynthesisUtterance(text);
+                msg.lang = 'ru-RU';
+                msg.rate = 1.0;
+                msg.onend = () => {
+                    setTimeout(() => { auraStatus.style.transform = 'translateY(100%)'; }, 3000);
+                };
+                window.speechSynthesis.speak(msg);
             }
         }
+
+        function activateAura() {
+            speak(`Здравствуйте! Я Аура, ваш виртуальный помощник Атом 64. Я проанализировала ваш регион. В городе ${currentCity.name} мы обеспечим вам самый высокий охват. Настройте бюджет, чтобы увидеть прогноз.`);
+        }
+
+        // ОПРЕДЕЛЕНИЕ ГЕОЛОКАЦИИ (УПРОЩЕННОЕ)
+        async function detectLocation() {
+            try {
+                const res = await fetch('https://ipapi.co/json/');
+                const data = await res.json();
+                const cityKey = data.city;
+                
+                if (cityData[cityKey]) {
+                    currentCity = cityData[cityKey];
+                } else {
+                    currentCity = { name: data.city || "Ваш город", reach: "Индивидуально", multiplier: 7.5 };
+                }
+                
+                document.getElementById('city-tag').innerText = `ЛОКАЦИЯ: ${currentCity.name.toUpperCase()}`;
+                document.getElementById('display-city').innerText = currentCity.name;
+                document.getElementById('display-reach').innerText = currentCity.reach;
+                updateCalc();
+            } catch (e) {
+                document.getElementById('city-tag').innerText = "ЛОКАЦИЯ: РФ";
+            }
+        }
+
+        // КАЛЬКУЛЯТОР
+        const range = document.getElementById('budgetRange');
+        const budgetVal = document.getElementById('budgetValue');
+        const calcReach = document.getElementById('calcReach');
+
+        function updateCalc() {
+            const val = parseInt(range.value);
+            budgetVal.innerText = val.toLocaleString();
+            const reach = Math.round(val * currentCity.multiplier);
+            calcReach.innerText = reach.toLocaleString();
+        }
+
+        range.addEventListener('input', updateCalc);
+
+        // ЗАПУСК
+        window.onload = () => {
+            detectLocation();
+            // Небольшая задержка перед приветствием (опционально)
+        };
     </script>
 </body>
 </html>
